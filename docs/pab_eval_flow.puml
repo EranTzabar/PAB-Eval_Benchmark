@@ -1,0 +1,446 @@
+' PAB-Eval harness - end to end flow
+' Six diagrams in one file. PlantUML renders each @startuml block separately,
+' using the name after @startuml as the output filename.
+'
+' Render all:   java -jar plantuml.jar docs/pab_eval_flow.puml
+' Render one:   java -jar plantuml.jar -Sname=pab_eval_generate docs/pab_eval_flow.puml
+
+'=====================================================================
+' 1. Architecture: two independent pipes that share only R2
+'=====================================================================
+@startuml pab_eval_overview
+' Graphviz is not installed on this machine, so every diagram below that would
+' normally shell out to dot uses PlantUML's built-in Java layout engine instead.
+' Install Graphviz and delete these pragma lines for slightly better layout.
+!pragma layout smetana
+title PAB-Eval - two independent pipes over Cloudflare R2
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Local inputs (hand authored)" as inputs {
+  artifact "data/prompts.jsonl\n120 single-turn prompts" as prompts
+  artifact "data/chains.json\n6 chains x 5 turns = 30" as chains
+  artifact "my_run.yaml\ntarget + persona block" as cfg
+  artifact "personas/<persona_dir>/\nfacts + nature + all memories" as pdir
+  artifact ".env  (gitignored)\nR2 + API keys" as env
+}
+
+component "PIPE 1: generate\npab_eval/runner.py" as gen
+cloud "Target API\nOpenAI-compatible chat completions" as target
+
+database "Cloudflare R2\nsingle source of truth" as r2
+
+component "PIPE 2: judge\npab_eval/judges/runner.py" as judge
+cloud "Judge API\nper JudgeSpec in judges/registry.py" as japi
+
+prompts --> gen
+chains  --> gen
+cfg     --> gen
+pdir    --> gen : composed into one\nsystem prompt
+env     --> gen
+env     --> judge
+
+gen    <--> target : 150 calls\nsystem = persona or None
+gen     --> r2 : run.json, checkpoint.json,\nresponses/*.json, failures/*.json
+r2      --> judge : reads responses/*.json
+judge  <--> japi : 150 calls per judge\nNO persona text ever sent
+judge   --> r2 : judge.json, checkpoint.json,\nscores/*.json, failures/*.json
+
+note bottom of judge
+  Re-runnable forever against the same stored responses.
+  A new judge costs judge tokens only - the target is
+  never called again.
+
+  N judges = N independent result sets.
+  No arbitration, no tie-breaker, no merged score.
+end note
+
+note bottom of r2
+  runs/{run_id}/run.json
+  runs/{run_id}/checkpoint.json
+  runs/{run_id}/responses/{item_id}.json
+  runs/{run_id}/failures/{item_id}.json
+  runs/{run_id}/judges/{judge_run_id}/judge.json
+  runs/{run_id}/judges/{judge_run_id}/checkpoint.json
+  runs/{run_id}/judges/{judge_run_id}/scores/{item_id}.json
+  runs/{run_id}/judges/{judge_run_id}/failures/{item_id}.json
+end note
+@enduml
+
+
+'=====================================================================
+' 2. Generate pipe
+'=====================================================================
+@startuml pab_eval_generate
+!pragma layout smetana
+title PIPE 1 - generate
+
+skinparam shadowing false
+start
+
+partition "Startup" {
+  :load_env - pab-eval/.env, override=False;
+  :load_config - resolve api_key_env from os.environ;
+  :load + validate dataset
+  120 singles, 6 chains, 150 unique ids;
+
+  if (persona.mode) then (harness)
+    :system = composed persona prompt
+    inline | prompt_file | persona_dir;
+  else (endpoint)
+    :system = None
+    endpoint owns the persona,
+    never stack a second one;
+  endif
+
+  if (run.json already exists?) then (yes)
+    if (persona_sha256 / wrapper / model / dataset_sha256 match?) then (no)
+      #pink:abort - resuming under a changed config
+      would blend two evals into one run prefix;
+      stop
+    else (yes)
+    endif
+  else (no)
+    :write run.json manifest
+    BEFORE the first response;
+  endif
+}
+
+partition "Resume" {
+  :load checkpoint.json;
+  if (checkpoint present and parseable?) then (no)
+    :rebuild_from_store - list responses/ and read each object;
+  else (yes)
+  endif
+  :pending = selected_ids - completed
+  NOTE: previously failed items are included;
+}
+
+partition "Work loop" {
+  while (pending items remain?) is (yes)
+    if (item type) then (single turn)
+      :messages = [user: item.text];
+    else (chain turn)
+      :rebuild messages from the stored
+      transcript of the previous turn;
+    endif
+
+    :attempt_item - see diagram 4;
+
+    if (outcome) then (success)
+      :write responses/{item_id}.json
+      incl. transcript snapshot for chain turns;
+      :mark_done;
+      :save checkpoint.json;
+    else (exhausted)
+      :write failures/{item_id}.json;
+      :mark_failed;
+      :save checkpoint.json  <b>before</b> prompting;
+      if (chain turn?) then (yes)
+        :mark remaining turns of this chain failed
+        upstream turn {id} failed
+        turn N+1 needs turn N's reply;
+      else (no)
+      endif
+      :FailureGate.decide - see diagram 5;
+      if (decision) then (STOP)
+        #pink:print resume command, exit non-zero;
+        stop
+      else (CONTINUE / CONTINUE_ALL)
+      endif
+    endif
+  endwhile (no)
+}
+
+:print summary - completed, failed, failed ids;
+stop
+@enduml
+
+
+'=====================================================================
+' 3. Judge pipe
+'=====================================================================
+@startuml pab_eval_judge
+!pragma layout smetana
+title PIPE 2 - judge  (repeat per judge in --judge a,b,c)
+
+skinparam shadowing false
+start
+
+:load_env;
+:get_judge(judge_id) from JUDGES registry
+KeyError -> ConfigError listing known ids;
+:judge_run_id = --judge-run-id or judge_id;
+
+if (runs/{run_id}/run.json exists?) then (no)
+  #pink:refuse to start;
+  stop
+else (yes)
+endif
+
+if (response count < 150?) then (yes)
+  :warn - partial generation is judgeable,
+  but must not be mistaken for a full run;
+else (no)
+endif
+
+:write judge.json manifest;
+:load this judge's own checkpoint
+judges/{judge_run_id}/checkpoint.json;
+:pending = response ids - completed;
+
+while (pending items remain?) is (yes)
+  :read responses/{item_id}.json;
+  :build PERSONA-BLIND prompt
+  ----
+  category label + CATEGORY_PROBES line
+  prior transcript, chain turns only
+  adversarial user prompt
+  model response
+  AID / LTF / EBC rubric + JSON shape
+  ----
+  NO persona text, NO archetype;
+
+  :attempt_item - see diagram 4
+  parse failures are retryable, so a judge
+  that wrapped its JSON in prose is re-asked;
+
+  if (outcome) then (parsed ok)
+    :ScoreRecord aid 0|1, ltf 1-5, ebc 1-5
+    parse_ok=true, raw kept verbatim;
+    :aid_heuristic_flag = regex on the response
+    FLAG ONLY - never overrides the judge;
+    :write scores/{item_id}.json;
+    :mark_done + save checkpoint;
+  else (exhausted after 3)
+    :ScoreRecord aid=null, ltf=null, ebc=null
+    parse_ok=false, error names the attempt count
+    ----
+    null not zero: a timeout is missing data,
+    not a persona collapse;
+    :write scores/{item_id}.json + failures/{item_id}.json;
+    :mark_failed + save checkpoint;
+    :FailureGate.decide - see diagram 5;
+    if (decision) then (STOP)
+      #pink:end THIS judge's pass,
+      do not start the next judge;
+      stop
+    else (CONTINUE / CONTINUE_ALL)
+    endif
+  endif
+endwhile (no)
+
+:print summary;
+stop
+
+note right
+  Scoring stops here. No PAS, no aggregation,
+  no report. Raw aid / ltf / ebc in R2 is the
+  end of the pipeline.
+end note
+@enduml
+
+
+'=====================================================================
+' 4. One item: 3 attempts, then the operator gate
+'=====================================================================
+@startuml pab_eval_item_attempts
+title One item - MAX_ATTEMPTS = 3, then ask the operator
+
+skinparam shadowing false
+actor Operator
+participant "pipe" as Pipe
+participant "call_with_retries\nretry.py" as Retry
+participant "ModelClient" as Client
+participant "FailureGate\nfailures.py" as Gate
+participant "Checkpoint\ncheckpoint.py" as CP
+database "R2" as R2
+
+Pipe -> Retry : call_with_retries(fn)
+
+group Attempt 1
+  Retry -> Client : complete(...)
+  Client --> Retry : HTTP 401
+  Retry -> Retry : classify -> "auth"
+  note right of Retry
+    Every error class gets all 3 attempts,
+    auth included. classify labels the failure
+    for the log, it never shortens the loop.
+    The same 401 comes from a revoked key,
+    a .env that never loaded, an api_key_env
+    naming a missing variable, or a bug in the
+    Authorization header.
+  end note
+  Retry -> Retry : sleep 2s
+end
+
+group Attempt 2
+  Retry -> Client : complete(...)
+  Client --> Retry : HTTP 401
+  Retry -> Retry : sleep 4s
+end
+
+group Attempt 3
+  Retry -> Client : complete(...)
+  Client --> Retry : HTTP 401
+end
+
+Retry --> Pipe : AttemptsExhausted[3 x Attempt]
+
+Pipe -> R2 : put failures/{item_id}.json\nbody snippets scrubbed of Bearer/sk-/*_KEY values
+Pipe -> CP : mark_failed - cumulative attempts++
+Pipe -> R2 : put checkpoint.json
+note over Pipe, R2
+  Saved BEFORE the prompt: the operator may answer
+  by killing the terminal, and what just failed
+  must already be durable.
+end note
+
+Pipe -> Gate : decide(FailureDetail)
+Gate -> Operator : full report + \n"Continue? [y] [a] [n]"
+Operator --> Gate : keystroke
+
+alt y - this item only
+  Gate --> Pipe : CONTINUE
+else a - all further failures
+  Gate --> Pipe : CONTINUE_ALL
+else n - stop and save
+  Gate --> Pipe : STOP
+end
+
+note over Retry
+  Happy path: any attempt that returns
+  cleanly short-circuits the loop and the
+  gate is never consulted.
+end note
+@enduml
+
+
+'=====================================================================
+' 5. The failure gate
+'=====================================================================
+@startuml pab_eval_failure_gate
+!pragma layout smetana
+title FailureGate - who decides to keep going
+
+skinparam shadowing false
+start
+:item exhausted 3 attempts;
+
+if (--on-failure) then (abort)
+  :STOP;
+  stop
+elseif (--on-failure) then (continue)
+  :CONTINUE_ALL - log everything, never prompt;
+  stop
+else (ask  <b>default</b>)
+endif
+
+if (CONTINUE_ALL already chosen this run?) then (yes)
+  :CONTINUE_ALL - do not prompt again;
+  stop
+else (no)
+endif
+
+if (stdin is a TTY?) then (no)
+  #lightgray:degrade to STOP
+  ----
+  ask -> abort, never ask -> continue.
+  A CI / nohup / scheduled run would block
+  forever on a prompt nobody can see, and
+  guessing "continue" means a full paid run
+  of garbage. Logged loudly at startup.;
+  stop
+else (yes)
+endif
+
+:print render_failure_report
+----
+item id, pipe, run id, error kind
+every attempt with status + body
+targeted hint for the kind
+cumulative attempts across runs
+progress: done / failed / remaining
+path of the failure detail object;
+
+repeat
+  :prompt  "Continue? [y] this item only
+  [a] all further failures  [n] stop and save";
+  :read answer;
+repeat while (recognised?) is (no) not (yes)
+
+switch (answer)
+case (y)
+  :CONTINUE
+  next item, ask again on the next failure;
+case (a)
+  :CONTINUE_ALL
+  remembered for this process only,
+  never persisted to the checkpoint;
+case (n or EOF)
+  :STOP
+  checkpoint already saved,
+  print resume command, exit non-zero;
+endswitch
+stop
+@enduml
+
+
+'=====================================================================
+' 6. Resume: why the checkpoint, not the key listing, is the authority
+'=====================================================================
+@startuml pab_eval_resume
+!pragma layout smetana
+title Resume - the checkpoint is the authority
+
+skinparam shadowing false
+
+state "Run 1" as R1 {
+  state "DIR_001 ok" as a1
+  state "DIR_002 FAILED x3" as a2
+  state "DIR_003 never reached" as a3
+  a1 --> a2
+  a2 --> a3 : operator answered [y]
+}
+
+state "Stored after run 1" as S {
+  state "checkpoint.json\ncompleted: [DIR_001]\nfailed: {DIR_002: attempts 3}" as cp
+  state "responses/DIR_001.json" as o1
+  state "failures/DIR_002.json" as o2
+}
+
+state "Run 2 - same command" as R2 {
+  state "pending = all - completed\n= [DIR_002, DIR_003]" as p
+  state "DIR_002 retried, fresh 3 attempts" as b2
+  state "DIR_003 run" as b3
+  p --> b2
+  b2 --> b3
+}
+
+R1 --> S
+S --> R2
+
+note bottom of S
+  A failed item writes an object too, so
+  exists(key) is TRUE for work that never
+  succeeded. Resuming off a key listing would
+  skip precisely the items that need another
+  try - the failures would freeze in place and
+  no re-run could ever clear them.
+
+  Hence: completed comes from the checkpoint.
+  If the checkpoint is missing or corrupt,
+  rebuild by listing the prefix and reading
+  parse_ok on each object - a slower resume,
+  never a re-run of everything.
+
+  MAX_ATTEMPTS is per item per run, not
+  cumulative: a resumed item gets a fresh 3,
+  because the usual reason to resume is that
+  the thing that broke has been fixed.
+  The cumulative count is kept, and shown in
+  the report, so a genuinely dead item can be
+  recognised and stopped.
+end note
+@enduml

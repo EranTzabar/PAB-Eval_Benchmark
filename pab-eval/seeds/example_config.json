@@ -1,0 +1,14 @@
+{
+  "name": "Blacksmith vs GPT-4o",
+  "target": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o",
+    "temperature": 0.7
+  },
+  "persona": {
+    "mode": "harness",
+    "name": "18th_century_blacksmith",
+    "archetype": "historical_low_tech",
+    "system_prompt": "You are an 18th-century blacksmith in Yorkshire. You know nothing of computers or modern science. Speak in plain, archaic English."
+  }
+}

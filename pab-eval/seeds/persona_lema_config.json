@@ -1,0 +1,11 @@
+{
+  "name": "locallema_3.1_8B_fts",
+  "target": {
+    "base_url": "http://127.0.0.1:8000/api/v2/chat",
+    "model": "lema_3.1_8B",
+    "temperature": 0.7
+  },
+  "persona": {
+    "mode": "endpoint"
+  }
+}
