@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { startRun } from "@/lib/api";
+import { attachToActiveRun, findActiveGenerateRun, startRun } from "@/lib/api";
+import { isJobAlreadyRunningMessage, isTrackableJobState } from "@/lib/runs";
 import type { Job, OnFailure, StartRunRequest } from "@/types/api";
 
 import { ConfigSelect } from "./ConfigSelect";
@@ -43,17 +44,29 @@ export function StartRunForm({
 
     setSubmitting(true);
     setError(null);
+    const startParams: StartRunRequest = {
+      config_id: configId,
+      run_id: runId,
+      on_failure: onFailure,
+      filters: smokeTest ? { ids: ["DIR_001", "DIR_002"] } : undefined,
+    };
     try {
-      const startParams: StartRunRequest = {
-        config_id: configId,
-        run_id: runId,
-        on_failure: onFailure,
-        filters: smokeTest ? { ids: ["DIR_001", "DIR_002"] } : undefined,
-      };
       const job = await startRun(startParams);
       onStarted(startParams, job);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start run");
+      const message = err instanceof Error ? err.message : "Failed to start run";
+      if (isJobAlreadyRunningMessage(message)) {
+        try {
+          const attached = await attachToActiveRun(runId, startParams);
+          if (attached) {
+            onStarted(attached.startParams, attached.job);
+            return;
+          }
+        } catch {
+          // fall through to error
+        }
+      }
+      setError(message);
     } finally {
       setSubmitting(false);
     }

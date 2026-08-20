@@ -11,6 +11,8 @@ import type {
   StartRunRequest,
 } from "@/types/api";
 
+import { canAttachToRun, isTrackableJobState, startParamsFromRunDetail } from "./runs";
+
 export function apiBaseUrl(): string {
   const url = process.env.NEXT_PUBLIC_PAB_API_URL ?? "http://127.0.0.1:8001";
   return url.replace(/\/$/, "");
@@ -177,6 +179,30 @@ export async function renameRun(
 
 export async function getRun(runId: string, signal?: AbortSignal): Promise<RunDetail> {
   return request(`/runs/${encodeURIComponent(runId)}`, { signal });
+}
+
+export async function attachToActiveRun(
+  runId: string,
+  fallback?: Partial<StartRunRequest>,
+): Promise<{ startParams: StartRunRequest; job: Job } | null> {
+  const detail = await getRun(runId);
+  if (!canAttachToRun(detail)) return null;
+  const startParams = startParamsFromRunDetail(detail, fallback);
+  if (!startParams) return null;
+  return { startParams, job: detail.job };
+}
+
+export async function findActiveGenerateRun(): Promise<{
+  startParams: StartRunRequest;
+  job: Job;
+} | null> {
+  const runs = await listRuns();
+  for (const run of runs) {
+    if (!run.job || !isTrackableJobState(run.job.state)) continue;
+    const attached = await attachToActiveRun(run.run_id);
+    if (attached) return attached;
+  }
+  return null;
 }
 
 export async function cancelRun(runId: string): Promise<{ ok: boolean }> {

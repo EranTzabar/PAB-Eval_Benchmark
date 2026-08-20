@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ConfigDetailModal } from "@/components/ConfigDetailModal";
 import { listConfigSummaries, listRuns, renameRun } from "@/lib/api";
+import { isTrackableJobState } from "@/lib/runs";
 import type { ConfigSummary, JobState, RenameStatus, RunListItem } from "@/types/api";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -249,6 +250,14 @@ export function RunsList() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="font-mono">{run.run_id}</span>
+                        {state !== "idle" && isTrackableJobState(state) ? (
+                          <Link
+                            href={`/?track=${encodeURIComponent(run.run_id)}`}
+                            className="text-xs font-medium text-sky-700 underline hover:text-sky-900 dark:text-sky-300"
+                          >
+                            Track
+                          </Link>
+                        ) : null}
                         {editable ? (
                           <button
                             type="button"

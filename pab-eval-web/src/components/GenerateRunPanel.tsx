@@ -55,6 +55,7 @@ interface GenerateRunPanelProps {
   initialJob: Job;
   resumeParams: StartRunRequest;
   onTerminal?: () => void;
+  onJobUpdate?: (job: Job) => void;
 }
 
 export function GenerateRunPanel({
@@ -62,6 +63,7 @@ export function GenerateRunPanel({
   initialJob,
   resumeParams,
   onTerminal,
+  onJobUpdate,
 }: GenerateRunPanelProps) {
   const [job, setJob] = useState<Job>(initialJob);
   const [targetModel, setTargetModel] = useState<string | null>(null);
@@ -112,6 +114,10 @@ export function GenerateRunPanel({
       setStreamOpen(false);
     }
   }, [isTerminal]);
+
+  useEffect(() => {
+    onJobUpdate?.(job);
+  }, [job, onJobUpdate]);
 
   useEffect(() => {
     if (isTerminal) return;
