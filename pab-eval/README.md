@@ -14,7 +14,9 @@ copy .env.example .env
 python main.py
 ```
 
-Open `http://127.0.0.1:8000/docs` for the interactive API contract.
+Open `http://127.0.0.1:8001/docs` for the interactive API contract.
+
+Web UI for the generate pipe: [`../pab-eval-web/`](../pab-eval-web/) — run with `npm run dev` on port 3000.
 
 Run tests (no network, no credentials):
 

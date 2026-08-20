@@ -13,7 +13,7 @@ from pab_eval.config import load_env
 def main() -> None:
     load_env()
     host = os.environ.get("PAB_HOST", "127.0.0.1")
-    port = int(os.environ.get("PAB_PORT", "8000"))
+    port = int(os.environ.get("PAB_PORT", "8001"))
     uvicorn.run(create_app(), host=host, port=port)
 
 

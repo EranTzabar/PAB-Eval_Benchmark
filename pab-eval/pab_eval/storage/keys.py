@@ -74,6 +74,16 @@ def item_id_from_key(key: str) -> str:
     return name
 
 
+def run_id_from_manifest_key(key: str) -> str | None:
+    """Extract run_id from ``runs/{run_id}/run.json``."""
+    if not key.endswith("/run.json"):
+        return None
+    parts = key.split("/")
+    if len(parts) == 3 and parts[0] == "runs":
+        return parts[1]
+    return None
+
+
 def config(config_id: str) -> str:
     validate_id(config_id, "config_id")
     return f"configs/{config_id}.json"

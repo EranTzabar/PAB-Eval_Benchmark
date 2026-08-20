@@ -1,0 +1,29 @@
+---
+description: Do not add unrequested extras; ask before expanding scope
+alwaysApply: true
+---
+
+# Scope discipline
+
+Deliver exactly what was asked. Do not expand scope on your own.
+
+## Do not add without being asked
+
+- Extra files (docs, README links, examples, configs)
+- Extra sections in documents the user requested
+- Refactors, cleanup, or "helpful" changes outside the task
+- Features, tests, or tooling not in the request
+
+## When something extra seems useful
+
+Stop and ask first. For example:
+
+- "You asked for X. Should I also add Y?"
+- "I could document Z — want that included?"
+
+Do not assume the answer is yes.
+
+## Default behavior
+
+- Minimal diff that satisfies the request
+- If the request is ambiguous, ask one clarifying question rather than guessing and over-delivering

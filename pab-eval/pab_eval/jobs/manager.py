@@ -128,6 +128,16 @@ class JobManager:
             if job.state == JobState.running:
                 job.state = JobState.cancelled
 
+    def drop(self, job_id: str) -> None:
+        """Remove a finished job from memory (e.g. after run rename)."""
+        with self._lock:
+            thread = self._threads.get(job_id)
+            if thread is not None and thread.is_alive():
+                raise JobAlreadyRunningError(f"job still running: {job_id}")
+            self._jobs.pop(job_id, None)
+            self._threads.pop(job_id, None)
+            self._contexts.pop(job_id, None)
+
     def shutdown(self, timeout_s: float = 30.0) -> None:
         for job_id in list(self._contexts):
             self.cancel(job_id)

@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+from pab_eval.api.rename_tracker import RenameTracker
 from pab_eval.jobs.events import EventBus
 from pab_eval.jobs.manager import JobManager
 from pab_eval.storage.base import ObjectStore
 
 
 class AppState:
-    def __init__(self, store: ObjectStore, jobs: JobManager, bus: EventBus) -> None:
+    def __init__(
+        self,
+        store: ObjectStore,
+        jobs: JobManager,
+        bus: EventBus,
+        rename_tracker: RenameTracker | None = None,
+    ) -> None:
         self.store = store
         self.jobs = jobs
         self.bus = bus
+        self.rename_tracker = rename_tracker or RenameTracker()
 
 
 _state: AppState | None = None

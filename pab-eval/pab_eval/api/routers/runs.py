@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from sse_starlette.sse import EventSourceResponse
 
 from pab_eval.api.deps import get_state
-from pab_eval.api.models import DecisionRequest, StartJudgeRequest, StartRunRequest
+from pab_eval.api.models import DecisionRequest, RenameRunRequest, StartJudgeRequest, StartRunRequest
 from pab_eval.api.stores import get_config
 from pab_eval.config import build_client, resolve_persona
 from pab_eval.dataset import default_dataset_paths, load_dataset
@@ -23,8 +24,49 @@ from pab_eval.judges.runner import build_judge_client, judge as run_judge
 from pab_eval.runner import generate
 from pab_eval.schemas import Progress
 from pab_eval.storage import keys
+from pab_eval.storage.run_rename import plan_rename, rename_run
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+def _rename_status_payload(op) -> dict:
+    return {
+        "old_run_id": op.old_run_id,
+        "new_run_id": op.new_run_id,
+        "status": op.status,
+        "phase": op.phase,
+        "copied": op.copied,
+        "total": op.total,
+        "skipped": op.skipped,
+        "error": op.error,
+    }
+
+
+def _drop_rename_jobs(state, old_id: str, new_id: str) -> None:
+    job_id = f"generate:{old_id}"
+    state.jobs.drop(job_id)
+    new_job_id = f"generate:{new_id}"
+    if new_job_id != job_id:
+        state.jobs.drop(new_job_id)
+
+
+def _run_rename_background(state, old_id: str, new_id: str) -> None:
+    tracker = state.rename_tracker
+
+    def on_progress(phase: str, copied: int, total: int, skipped: int) -> None:
+        if phase == "deleting":
+            tracker.update(old_id, phase="deleting", copied=copied, skipped=skipped)
+        elif phase == "done":
+            tracker.update(old_id, phase="done", copied=copied, skipped=skipped)
+        else:
+            tracker.update(old_id, phase="copying", copied=copied, skipped=skipped)
+
+    try:
+        rename_run(state.store, old_id, new_id, on_progress=on_progress)
+        _drop_rename_jobs(state, old_id, new_id)
+        tracker.complete(old_id)
+    except Exception as exc:
+        tracker.fail(old_id, f"{exc.__class__.__name__}: {exc}")
 
 
 def _gate_for_request(on_failure: str, job, bus, cancel_event):
@@ -94,9 +136,16 @@ def start_run(body: StartRunRequest):
 @router.get("")
 def list_runs():
     state = get_state()
-    run_ids = sorted({keys.item_id_from_key(k) for k in state.store.list_keys(keys.runs_prefix()) if k.endswith("/run.json")})
+    run_ids: set[str] = set()
+    for key in state.store.list_keys(keys.runs_prefix()):
+        run_id = keys.run_id_from_manifest_key(key)
+        if run_id:
+            run_ids.add(run_id)
+    for job in state.jobs.list():
+        if job.kind == "generate":
+            run_ids.add(job.run_id)
     out = []
-    for run_id in run_ids:
+    for run_id in sorted(run_ids):
         item = {"run_id": run_id}
         job = state.jobs.get(f"generate:{run_id}")
         if job:
@@ -122,6 +171,64 @@ def get_run(run_id: str):
     if "manifest" not in result:
         raise HTTPException(status_code=404, detail="run not found")
     return result
+
+
+@router.get("/{run_id}/rename-status")
+def get_rename_status(run_id: str):
+    op = get_state().rename_tracker.get(run_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail="rename not found")
+    return _rename_status_payload(op)
+
+
+@router.patch("/{run_id}")
+def patch_run(run_id: str, body: RenameRunRequest, response: Response):
+    state = get_state()
+    job_id = f"generate:{run_id}"
+    job = state.jobs.get(job_id)
+    if job and job.state in (JobState.running, JobState.awaiting_decision):
+        raise HTTPException(status_code=409, detail="cannot rename while run is active")
+
+    existing = state.rename_tracker.get(run_id)
+    if existing and existing.status == "in_progress":
+        response.status_code = 202
+        return {"ok": True, **_rename_status_payload(existing)}
+
+    try:
+        plan = plan_rename(state.store, run_id, body.run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+    except RunConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if plan.noop:
+        try:
+            _drop_rename_jobs(state, run_id, body.run_id)
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "ok": True,
+            "old_run_id": run_id,
+            "new_run_id": body.run_id,
+            "status": "completed",
+            "phase": "done",
+            "total": 0,
+            "copied": 0,
+            "skipped": 0,
+            "error": None,
+        }
+
+    op = state.rename_tracker.start(run_id, body.run_id, plan.total)
+    payload = {"ok": True, **_rename_status_payload(op)}
+    thread = threading.Thread(
+        target=_run_rename_background,
+        args=(state, run_id, body.run_id),
+        name=f"rename:{run_id}",
+        daemon=True,
+    )
+    thread.start()
+    response.status_code = 202
+    return payload
 
 
 _TERMINAL_JOB_STATES = {

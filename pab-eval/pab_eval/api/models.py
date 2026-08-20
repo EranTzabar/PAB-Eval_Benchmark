@@ -45,6 +45,12 @@ class DecisionRequest(BaseModel):
     decision: Literal["continue", "all", "stop"]
 
 
+class RenameRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: SafeId
+
+
 class ConfigValidateRequest(BaseModel):
     name: str
     target: TargetConfig
