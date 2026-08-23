@@ -9,7 +9,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pab_eval.config import RunConfig, RunConfigCreate
-from pab_eval.errors import ConfigError
+from pab_eval.dataset_view import (
+    DatasetView,
+    DatasetViewUpdate,
+    empty_dataset_view,
+    known_item_ids,
+    load_current_dataset_sha,
+    prune_rows,
+    validate_rows,
+)
+from pab_eval.errors import ConfigError, DatasetError
+from pab_eval.judges.config import JudgeConfig, JudgeConfigCreate, JudgeConfigUpdate
 from pab_eval.persona import LocalDirSource, R2PersonaSource, compose_persona
 from pab_eval.schemas import PersonaManifest
 from pab_eval.storage import keys
@@ -64,6 +74,64 @@ def update_config(store: ObjectStore, config_id: str, body: RunConfigCreate) -> 
 
 def delete_config(store: ObjectStore, config_id: str) -> None:
     store.delete(keys.config(config_id))
+
+
+def list_judge_ids(store: ObjectStore) -> list[str]:
+    return sorted(
+        keys.item_id_from_key(k)
+        for k in store.list_keys(keys.judges_defs_prefix())
+        if k.endswith(".json")
+    )
+
+
+def get_judge_config(store: ObjectStore, judge_id: str) -> JudgeConfig:
+    return JudgeConfig.model_validate(store.get_json(keys.judge_def(judge_id)))
+
+
+def list_judge_configs(store: ObjectStore) -> list[JudgeConfig]:
+    return [get_judge_config(store, judge_id) for judge_id in list_judge_ids(store)]
+
+
+def create_judge(store: ObjectStore, body: JudgeConfigCreate) -> JudgeConfig:
+    if store.exists(keys.judge_def(body.judge_id)):
+        raise ConfigError(f"judge already exists: {body.judge_id}")
+    now = datetime.now(timezone.utc)
+    config = JudgeConfig(
+        judge_id=body.judge_id,
+        name=body.name,
+        base_url=body.base_url,
+        model=body.model,
+        api_key_env=body.api_key_env,
+        temperature=body.temperature,
+        max_tokens=body.max_tokens,
+        notes=body.notes,
+        created_at=now,
+        updated_at=now,
+    )
+    store.put_json(keys.judge_def(body.judge_id), config.model_dump(mode="json"))
+    return config
+
+
+def update_judge(store: ObjectStore, judge_id: str, body: JudgeConfigUpdate) -> JudgeConfig:
+    existing = get_judge_config(store, judge_id)
+    updated = existing.model_copy(
+        update={
+            "name": body.name,
+            "base_url": body.base_url,
+            "model": body.model,
+            "api_key_env": body.api_key_env,
+            "temperature": body.temperature,
+            "max_tokens": body.max_tokens,
+            "notes": body.notes,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+    store.put_json(keys.judge_def(judge_id), updated.model_dump(mode="json"))
+    return updated
+
+
+def delete_judge(store: ObjectStore, judge_id: str) -> None:
+    store.delete(keys.judge_def(judge_id))
 
 
 def list_personas(store: ObjectStore) -> list[PersonaManifest]:
@@ -187,3 +255,28 @@ def seed_persona_from_dir(store: ObjectStore, path: Path, persona_id: str | None
     for mem in source.memory_filenames():
         files[f"memories/{mem}"] = source.read_text(f"memories/{mem}")
     return _write_persona_files(store, persona_id, files)
+
+
+def get_dataset_view(store: ObjectStore) -> DatasetView:
+    dataset, sha = load_current_dataset_sha()
+    key = keys.dataset_view()
+    if not store.exists(key):
+        return empty_dataset_view(sha)
+    view = DatasetView.model_validate(store.get_json(key))
+    view.rows = prune_rows(view.rows, known_item_ids(dataset))
+    return view
+
+
+def put_dataset_view(store: ObjectStore, body: DatasetViewUpdate) -> DatasetView:
+    dataset, sha = load_current_dataset_sha()
+    try:
+        validate_rows(body.rows, known_item_ids(dataset))
+    except ValueError as exc:
+        raise DatasetError(str(exc)) from exc
+    view = DatasetView(
+        updated_at=datetime.now(timezone.utc),
+        dataset_sha256=sha,
+        rows=body.rows,
+    )
+    store.put_json(keys.dataset_view(), view.model_dump(mode="json"))
+    return view

@@ -39,6 +39,7 @@ def test_key_builders_are_stable():
     assert keys.item_id_from_key(keys.response("r1", "DIR_001")) == "DIR_001"
     assert keys.run_id_from_manifest_key("runs/lema-run/run.json") == "lema-run"
     assert keys.run_id_from_manifest_key("runs/r1/responses/DIR_001.json") is None
+    assert keys.judge_def("gpt4o_judge") == "judges/gpt4o_judge.json"
 
 
 def test_missing_r2_env_var_raises_config_error(monkeypatch):

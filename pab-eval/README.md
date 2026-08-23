@@ -65,7 +65,9 @@ No PAS, aggregation, or report layer in this scope.
 
 ## Judges
 
-Defined in code: `pab_eval/judges/registry.py`. Add a `JudgeSpec`, set its `api_key_env` in `.env`, restart the server.
+Judge definitions are stored in R2 at `judges/{judge_id}.json` and managed via the web UI (**Judges manage**) or `GET/POST/PUT/DELETE /judges`. Each judge record names an `api_key_env` variable; set the actual key in `.env` and restart the server.
+
+Activate scoring with **Run judge** in the web UI or `POST /runs/{run_id}/judges`.
 
 ## Failure handling
 
@@ -82,6 +84,7 @@ Use `on_failure: abort|continue` on run start to skip interactive parking.
 
 ```
 configs/{config_id}.json
+judges/{judge_id}.json
 personas/{persona_id}/...
 runs/{run_id}/run.json
 runs/{run_id}/checkpoint.json

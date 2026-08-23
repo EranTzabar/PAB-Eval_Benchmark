@@ -93,6 +93,15 @@ def configs_prefix() -> str:
     return "configs/"
 
 
+def judge_def(judge_id: str) -> str:
+    validate_id(judge_id, "judge_id")
+    return f"judges/{judge_id}.json"
+
+
+def judges_defs_prefix() -> str:
+    return "judges/"
+
+
 def persona_manifest(persona_id: str) -> str:
     validate_id(persona_id, "persona_id")
     return f"personas/{persona_id}/manifest.json"
@@ -117,3 +126,7 @@ def personas_prefix() -> str:
 
 def runs_prefix() -> str:
     return "runs/"
+
+
+def dataset_view() -> str:
+    return "dataset/view.json"

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 import type { RunEvent } from "@/types/api";
 
-import { runEventsUrl } from "./api";
+import { judgeEventsUrl, runEventsUrl } from "./api";
 
 const EVENT_TYPES = [
   "snapshot",
@@ -27,6 +27,35 @@ function closeSource(source: EventSource, handlers: Map<string, EventListener>):
   source.close();
 }
 
+function subscribeEvents(
+  url: string,
+  onEvent: (type: string, data: RunEvent) => void,
+): () => void {
+  const source = new EventSource(url);
+  const handlers = new Map<string, EventListener>();
+
+  const close = () => closeSource(source, handlers);
+
+  for (const type of EVENT_TYPES) {
+    const handler = ((event: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(event.data) as RunEvent;
+        onEvent(type, data);
+        if (TERMINAL_EVENTS.has(type)) {
+          close();
+        }
+      } catch {
+        // ignore malformed payloads
+      }
+    }) as EventListener;
+    handlers.set(type, handler);
+    source.addEventListener(type, handler);
+  }
+
+  source.onerror = () => close();
+  return close;
+}
+
 export function useRunEvents(
   runId: string | null,
   onEvent: (type: string, data: RunEvent) => void,
@@ -44,41 +73,45 @@ export function useRunEvents(
       return;
     }
 
-    const source = new EventSource(runEventsUrl(runId));
-    const handlers = new Map<string, EventListener>();
-
-    const close = () => {
-      closeSource(source, handlers);
-      if (closeRef.current === close) {
-        closeRef.current = null;
-      }
-    };
+    const close = subscribeEvents(runEventsUrl(runId), (type, data) => {
+      onEventRef.current(type, data);
+    });
     closeRef.current = close;
 
-    for (const type of EVENT_TYPES) {
-      const handler = ((event: MessageEvent<string>) => {
-        try {
-          const data = JSON.parse(event.data) as RunEvent;
-          onEventRef.current(type, data);
-          if (TERMINAL_EVENTS.has(type)) {
-            close();
-          }
-        } catch {
-          // ignore malformed payloads
-        }
-      }) as EventListener;
-      handlers.set(type, handler);
-      source.addEventListener(type, handler);
+    return () => close();
+  }, [runId, enabled]);
+
+  return () => {
+    closeRef.current?.();
+    closeRef.current = null;
+  };
+}
+
+export function useJudgeEvents(
+  runId: string | null,
+  judgeRunId: string | null,
+  onEvent: (type: string, data: RunEvent) => void,
+  enabled = true,
+): () => void {
+  const onEventRef = useRef(onEvent);
+  const closeRef = useRef<(() => void) | null>(null);
+  onEventRef.current = onEvent;
+
+  useEffect(() => {
+    closeRef.current?.();
+    closeRef.current = null;
+
+    if (!runId || !judgeRunId || !enabled) {
+      return;
     }
 
-    source.onerror = () => {
-      close();
-    };
+    const close = subscribeEvents(judgeEventsUrl(runId, judgeRunId), (type, data) => {
+      onEventRef.current(type, data);
+    });
+    closeRef.current = close;
 
-    return () => {
-      close();
-    };
-  }, [runId, enabled]);
+    return () => close();
+  }, [runId, judgeRunId, enabled]);
 
   return () => {
     closeRef.current?.();

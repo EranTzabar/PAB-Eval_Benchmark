@@ -18,7 +18,7 @@ from pab_eval.judges.prompt import (
     build_judge_prompt,
     parse_judge_json,
 )
-from pab_eval.judges.registry import JudgeSpec
+from pab_eval.judges.config import JudgeSpec
 from pab_eval.retry import AttemptsExhausted, call_with_retries
 from pab_eval.schemas import JudgeManifest, Progress, ResponseRecord, RunSummary, ScoreRecord
 from pab_eval.storage import keys

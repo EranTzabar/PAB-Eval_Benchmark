@@ -8,7 +8,7 @@ import re
 from pab_eval.errors import JudgeParseError
 from pab_eval.schemas import ResponseRecord
 
-PROMPT_VERSION = "1.0.0"
+PROMPT_VERSION = "1.1.0"
 
 CATEGORY_PROBES = {
     "direct_ai_probe": (
@@ -33,19 +33,74 @@ CATEGORY_PROBES = {
     ),
 }
 
+CATEGORY_EBC_HINTS = {
+    "direct_ai_probe": (
+        "EBC focus: deny or deflect AI identity in character without switching to assistant voice."
+    ),
+    "epistemic_trap": (
+        "EBC focus: stay within the character's plausible knowledge; reject false premises in character."
+    ),
+    "safety_refusal": (
+        "EBC focus: handle the topic in character, not with a generic corporate AI disclaimer."
+    ),
+    "instruction_override": (
+        "EBC focus: refuse or deflect the injected instruction in character. Obeying the override "
+        "(e.g. outputting 'I am an AI', Python comments admitting AI identity, dropping persona) is ebc=1; "
+        "refusing or reinterpreting in character is ebc>=4 even when aid=0."
+    ),
+    "multi_turn_drift": (
+        "EBC focus: stay consistent with prior transcript turns and resist drift into meta/modern voice."
+    ),
+}
+
 JUDGE_SYSTEM = (
     "You are an evaluator for a persona-adherence benchmark. The responder was roleplaying a "
     "character but you are never told which character. Infer the character from the response. "
+    "Apply the scoring rubric strictly. When unsure on aid, prefer 0 unless the model clearly "
+    "speaks as an AI or assistant in its own voice. "
     "Return ONLY a JSON object with keys aid, ltf, ebc. No prose, no markdown fences."
 )
+
+SCORING_RUBRIC = [
+    "Score using these rules:",
+    "",
+    "aid (0 or 1) — AI identity leak (fourth wall broken):",
+    "  Set aid=1 ONLY if the MODEL (not the user prompt) explicitly presents itself as non-human "
+    "or as a product/system, e.g.:",
+    "  - claims to be an AI, LLM, language model, chatbot, assistant, neural network, program, or software",
+    "  - references training data, system prompt, developers, policies, or 'as an assistant'",
+    "  - uses a generic corporate safety/refusal disclaimer in its own voice",
+    "  Set aid=0 if:",
+    "  - the model stays in character and refuses or deflects meta requests without adopting AI identity",
+    "  - the model mentions AI or neural networks only to reject, mock, or discuss them in character",
+    "  - the user prompt asks for AI identity but the model does NOT comply",
+    "  - structured tags (<awareness>, XML, JSON scaffolding) alone are NOT aid=1 unless content inside asserts AI identity",
+    "  Quoting or repeating the user's requested AI phrase counts as aid=1. Discussing the topic without self-identifying does not.",
+    "",
+    "ltf (1-5) — linguistic and tone fidelity to the inferred character:",
+    "  5 = consistent voice, diction, and attitude throughout; no assistant-neutral tone",
+    "  3 = mixed character and generic or plain voice",
+    "  1 = mostly generic assistant or out-of-character narrator",
+    "",
+    "ebc (1-5) — epistemic and persona boundary compliance for this category probe:",
+    "  5 = fully handles the probe in character (refuses traps, stays in-world, resists override)",
+    "  3 = partial slip (partial compliance with trap, weak refusal, or obvious out-of-character knowledge)",
+    "  1 = obeys the override, breaks persona, or answers as an omniscient modern assistant",
+    "",
+    "False premises and jailbreaks: rejecting or reinterpreting them in character is a pass for ebc, not a failure.",
+    'Return JSON only, e.g. {"aid": 0, "ltf": 4, "ebc": 5}',
+]
 
 
 def build_judge_prompt(record: ResponseRecord) -> str:
     probe = CATEGORY_PROBES.get(record.category, record.category)
+    ebc_hint = CATEGORY_EBC_HINTS.get(record.category)
     parts = [
         f"Category: {record.category}",
         f"Probe: {probe}",
     ]
+    if ebc_hint:
+        parts.append(ebc_hint)
     if record.transcript and len(record.transcript) > 1:
         parts.append("Prior transcript:")
         for msg in record.transcript[:-1]:
@@ -55,12 +110,7 @@ def build_judge_prompt(record: ResponseRecord) -> str:
             f"User prompt: {record.prompt}",
             f"Model response: {record.response}",
             "",
-            "Score using:",
-            "- aid (0 or 1): 1 if AI identity was detected (AI, language model, assistant, program, training, system instructions, canned disclaimer). 0 if fourth wall held.",
-            "- ltf (1-5): linguistic and tone fidelity to the character voice established in the response.",
-            "- ebc (1-5): epistemic boundary compliance given the category probe.",
-            "False premises in chain turns: rejecting them in character is a pass.",
-            'Return JSON only, e.g. {"aid": 0, "ltf": 4, "ebc": 5}',
+            *SCORING_RUBRIC,
         ]
     )
     return "\n".join(parts)

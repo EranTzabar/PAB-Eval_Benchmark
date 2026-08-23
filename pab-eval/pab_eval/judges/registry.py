@@ -1,41 +1,23 @@
-"""Code-defined judge registry."""
+"""Load judge specs from R2-backed definitions."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
-
 from pab_eval.errors import ConfigError
+from pab_eval.judges.config import JudgeSpec
+from pab_eval.storage.base import ObjectStore
 
 
-class JudgeSpec(BaseModel):
-    model_config = ConfigDict(frozen=True)
+def get_judge(store: ObjectStore, judge_id: str) -> JudgeSpec:
+    from pab_eval.api.stores import get_judge_config, list_judge_ids
 
-    judge_id: str
-    base_url: str
-    model: str
-    api_key_env: str
-    temperature: float = 0.0
-    max_tokens: int | None = None
-    notes: str = ""
+    try:
+        return get_judge_config(store, judge_id).to_spec()
+    except KeyError:
+        known = ", ".join(sorted(list_judge_ids(store))) or "(none)"
+        raise ConfigError(f"unknown judge {judge_id!r}; known judges: {known}") from None
 
 
-JUDGES: dict[str, JudgeSpec] = {
-    "gpt4o_judge": JudgeSpec(
-        judge_id="gpt4o_judge",
-        base_url="https://api.openai.com/v1",
-        model="gpt-4o",
-        api_key_env="OPENAI_JUDGE_KEY",
-    ),
-}
+def list_judge_specs(store: ObjectStore) -> list[JudgeSpec]:
+    from pab_eval.api.stores import list_judge_configs
 
-
-def get_judge(judge_id: str) -> JudgeSpec:
-    spec = JUDGES.get(judge_id)
-    if spec is None:
-        known = ", ".join(sorted(JUDGES))
-        raise ConfigError(f"unknown judge {judge_id!r}; known judges: {known}")
-    return spec
-
-
-def list_judges() -> list[JudgeSpec]:
-    return list(JUDGES.values())
+    return [cfg.to_spec() for cfg in list_judge_configs(store)]

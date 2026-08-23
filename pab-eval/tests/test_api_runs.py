@@ -63,6 +63,76 @@ def test_unsafe_run_id_rejected(client):
     assert r.status_code == 422
 
 
+def test_list_all_judge_runs(client):
+    from datetime import datetime, timezone
+
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    started = datetime.now(timezone.utc).isoformat()
+    state.store.put_json(
+        keys.run_manifest("r1"),
+        {
+            "run_id": "r1",
+            "config_id": "c1",
+            "persona_mode": "endpoint",
+            "target_base_url": "u",
+            "target_model": "m",
+            "temperature": 0.7,
+            "started_at": started,
+        },
+    )
+    state.store.put_json(
+        keys.response("r1", "DIR_001"),
+        {
+            "item_id": "DIR_001",
+            "run_id": "r1",
+            "category": "direct_ai_probe",
+            "prompt": "q",
+            "response": "a",
+            "latency_ms": 1,
+            "generated_at": started,
+        },
+    )
+    state.store.put_json(
+        keys.judge_manifest("r1", "gemini_judge"),
+        {
+            "run_id": "r1",
+            "judge_run_id": "gemini_judge",
+            "judge_id": "gemini_judge",
+            "judge_model": "gemini-2.5-flash-lite",
+            "base_url": "https://example.com",
+            "temperature": 0.0,
+            "prompt_version": "1.1.0",
+            "started_at": started,
+            "notes": "",
+        },
+    )
+    state.store.put_json(
+        keys.judge_checkpoint("r1", "gemini_judge"),
+        {
+            "pipe": "judge",
+            "run_id": "r1",
+            "judge_run_id": "gemini_judge",
+            "completed": ["DIR_001"],
+            "failed": {},
+            "last_item_id": "DIR_001",
+            "attempted_total": 1,
+            "updated_at": started,
+        },
+    )
+
+    r = client.get("/runs/judge-runs")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["run_id"] == "r1"
+    assert body[0]["judge_run_id"] == "gemini_judge"
+    assert body[0]["manifest"]["judge_id"] == "gemini_judge"
+    assert body[0]["progress"]["completed"] == 1
+
+
 def test_list_runs_returns_run_id_from_manifest_key(client):
     from pab_eval.api.deps import get_state
 

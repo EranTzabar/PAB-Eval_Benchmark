@@ -1,14 +1,26 @@
 import type {
   ConfigSummary,
+  DatasetItems,
   DatasetStatus,
+  DatasetView,
+  DatasetViewUpdate,
   FailureDecision,
   Job,
+  JudgeConfig,
+  JudgeConfigCreate,
+  JudgeConfigUpdate,
+  JudgeRunDetail,
+  JudgeRunListItem,
   RunConfig,
   RunConfigCreate,
   RunDetail,
   RunListItem,
+  ResponseRecord,
   RenameStatus,
+  StartJudgeRequest,
   StartRunRequest,
+  ScoreRecord,
+  ScoresPage,
 } from "@/types/api";
 
 import { canAttachToRun, isTrackableJobState, startParamsFromRunDetail } from "./runs";
@@ -69,6 +81,27 @@ export async function getDatasetStatus(): Promise<DatasetStatus> {
   }
 }
 
+export async function getDatasetItems(): Promise<DatasetItems> {
+  try {
+    return await request("/dataset/items");
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : "dataset unavailable",
+      prompts: [],
+      chains: [],
+    };
+  }
+}
+
+export async function getDatasetView(): Promise<DatasetView> {
+  return request("/dataset/view");
+}
+
+export async function putDatasetView(body: DatasetViewUpdate): Promise<DatasetView> {
+  return request("/dataset/view", { method: "PUT", body: JSON.stringify(body) });
+}
+
 export async function listConfigIds(): Promise<string[]> {
   return request("/configs");
 }
@@ -125,6 +158,35 @@ export async function startRun(body: StartRunRequest): Promise<Job> {
 
 export async function listRuns(): Promise<RunListItem[]> {
   return request("/runs");
+}
+
+export async function getRunResponse(
+  runId: string,
+  itemId: string,
+): Promise<ResponseRecord | null> {
+  const res = await requestRaw(
+    `/runs/${encodeURIComponent(runId)}/responses/${encodeURIComponent(itemId)}`,
+  );
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") {
+        message = body.detail;
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as ResponseRecord;
+}
+
+export async function listAllJudgeRuns(): Promise<JudgeRunListItem[]> {
+  return request("/runs/judge-runs");
 }
 
 export async function getRenameStatus(oldRunId: string): Promise<RenameStatus> {
@@ -221,4 +283,122 @@ export async function submitRunDecision(
 
 export function runEventsUrl(runId: string): string {
   return `${apiBaseUrl()}/runs/${encodeURIComponent(runId)}/events`;
+}
+
+export async function listJudgeIds(): Promise<string[]> {
+  const judges = await request<JudgeConfig[]>("/judges");
+  return judges.map((j) => j.judge_id);
+}
+
+export async function listJudges(): Promise<JudgeConfig[]> {
+  const items = await request<JudgeConfig[]>("/judges");
+  return items.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+export async function getJudge(judgeId: string): Promise<JudgeConfig> {
+  return request(`/judges/${encodeURIComponent(judgeId)}`);
+}
+
+export async function createJudge(body: JudgeConfigCreate): Promise<JudgeConfig> {
+  return request("/judges", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateJudge(
+  judgeId: string,
+  body: JudgeConfigUpdate,
+): Promise<JudgeConfig> {
+  return request(`/judges/${encodeURIComponent(judgeId)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteJudge(judgeId: string): Promise<void> {
+  return request(`/judges/${encodeURIComponent(judgeId)}`, { method: "DELETE" });
+}
+
+export async function startJudges(
+  runId: string,
+  body: StartJudgeRequest,
+): Promise<Job[]> {
+  return request(`/runs/${encodeURIComponent(runId)}/judges`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getJudgeRun(
+  runId: string,
+  judgeRunId: string,
+  signal?: AbortSignal,
+): Promise<JudgeRunDetail> {
+  return request(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}`,
+    { signal },
+  );
+}
+
+export async function cancelJudgeRun(
+  runId: string,
+  judgeRunId: string,
+): Promise<{ ok: boolean }> {
+  return request(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export async function submitJudgeDecision(
+  runId: string,
+  judgeRunId: string,
+  decision: FailureDecision,
+): Promise<{ ok: boolean }> {
+  return request(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}/decision`,
+    {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    },
+  );
+}
+
+export function judgeEventsUrl(runId: string, judgeRunId: string): string {
+  return `${apiBaseUrl()}/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}/events`;
+}
+
+export async function listJudgeScores(
+  runId: string,
+  judgeRunId: string,
+  opts?: { limit?: number; cursor?: string; signal?: AbortSignal },
+): Promise<ScoresPage> {
+  const params = new URLSearchParams();
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  const qs = params.toString();
+  return request(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}/scores${qs ? `?${qs}` : ""}`,
+    { signal: opts?.signal },
+  );
+}
+
+export async function fetchAllJudgeScores(
+  runId: string,
+  judgeRunId: string,
+  signal?: AbortSignal,
+): Promise<ScoreRecord[]> {
+  const all: ScoreRecord[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await listJudgeScores(runId, judgeRunId, {
+      limit: 500,
+      cursor,
+      signal,
+    });
+    all.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return all.sort((a, b) => a.item_id.localeCompare(b.item_id));
 }

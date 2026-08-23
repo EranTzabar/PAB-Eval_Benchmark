@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PAB-Eval — Generate",
-  description: "Generate pipe dashboard for PAB-Eval benchmark",
+  title: "PAB-Eval",
+  description: "Generate and judge pipe dashboard for PAB-Eval benchmark",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

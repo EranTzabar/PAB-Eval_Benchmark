@@ -130,7 +130,7 @@ export default function HomePage() {
       <header>
         <h1 className="text-2xl font-bold tracking-tight">PAB-Eval — Generate</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Start and monitor the generate pipe (pipe 1). Judge scoring is not in this UI yet.
+          Start and monitor the generate pipe (pipe 1). Judge scoring is available under Run judge.
         </p>
         <Link
           href="/configs"
@@ -140,10 +140,31 @@ export default function HomePage() {
         </Link>
         <span className="mx-2 text-zinc-400">·</span>
         <Link
+          href="/judges"
+          className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Judges manage
+        </Link>
+        <span className="mx-2 text-zinc-400">·</span>
+        <Link
+          href="/judges/activate"
+          className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Run judge
+        </Link>
+        <span className="mx-2 text-zinc-400">·</span>
+        <Link
           href="/runs"
           className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
           All runs
+        </Link>
+        <span className="mx-2 text-zinc-400">·</span>
+        <Link
+          href="/dataset"
+          className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Dataset
         </Link>
       </header>
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timezone
 
@@ -25,6 +26,7 @@ from pab_eval.runner import generate
 from pab_eval.schemas import Progress
 from pab_eval.storage import keys
 from pab_eval.storage.run_rename import plan_rename, rename_run
+from pab_eval.dataset_view import patch_dataset_view_run_id
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -63,6 +65,7 @@ def _run_rename_background(state, old_id: str, new_id: str) -> None:
 
     try:
         rename_run(state.store, old_id, new_id, on_progress=on_progress)
+        patch_dataset_view_run_id(state.store, old_id, new_id)
         _drop_rename_jobs(state, old_id, new_id)
         tracker.complete(old_id)
     except Exception as exc:
@@ -154,6 +157,79 @@ def list_runs():
             item["manifest"] = state.store.get_json(keys.run_manifest(run_id))
         out.append(item)
     return out
+
+
+@router.get("/judge-runs")
+def list_all_judge_runs():
+    state = get_state()
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for key in state.store.list_keys(keys.runs_prefix()):
+        run_id = keys.run_id_from_manifest_key(key)
+        if not run_id:
+            continue
+        for jkey in state.store.list_keys(keys.judges_prefix(run_id)):
+            if not jkey.endswith("/judge.json"):
+                continue
+            manifest = state.store.get_json(jkey)
+            judge_run_id = manifest["judge_run_id"]
+            seen.add((run_id, judge_run_id))
+            item: dict = {
+                "run_id": run_id,
+                "judge_run_id": judge_run_id,
+                "manifest": manifest,
+            }
+            job = state.jobs.get(f"judge:{run_id}:{judge_run_id}")
+            if job:
+                item["job"] = job
+            else:
+                item["progress"] = _judge_progress_from_checkpoint(state.store, run_id, judge_run_id)
+            items.append(item)
+
+    for job in state.jobs.list():
+        if job.kind != "judge" or not job.judge_run_id:
+            continue
+        key = (job.run_id, job.judge_run_id)
+        if key in seen:
+            continue
+        items.append(
+            {
+                "run_id": job.run_id,
+                "judge_run_id": job.judge_run_id,
+                "job": job,
+            }
+        )
+
+    def _started_at(item: dict) -> str:
+        manifest = item.get("manifest") or {}
+        if manifest.get("started_at"):
+            return str(manifest["started_at"])
+        job = item.get("job")
+        if job is not None:
+            started = job.started_at
+            return started.isoformat() if hasattr(started, "isoformat") else str(started)
+        return ""
+
+    items.sort(key=_started_at, reverse=True)
+    return items
+
+
+def _judge_progress_from_checkpoint(store, run_id: str, judge_run_id: str) -> dict:
+    cp_key = keys.judge_checkpoint(run_id, judge_run_id)
+    if not store.exists(cp_key):
+        return {"completed": 0, "failed": 0, "remaining": 0, "current_item_id": None}
+    cp = store.get_json(cp_key)
+    completed = len(cp.get("completed", []))
+    failed = len(cp.get("failed", {}))
+    resp_count = len(store.list_keys(keys.responses_prefix(run_id)))
+    remaining = max(0, resp_count - completed - failed)
+    return {
+        "completed": completed,
+        "failed": failed,
+        "remaining": remaining,
+        "current_item_id": cp.get("last_item_id"),
+    }
 
 
 @router.get("/{run_id}")
@@ -330,9 +406,19 @@ def get_failure(run_id: str, item_id: str):
 @router.post("/{run_id}/judges", status_code=202)
 def start_judges(run_id: str, body: StartJudgeRequest):
     state = get_state()
+    if not state.store.exists(keys.run_manifest(run_id)):
+        raise HTTPException(status_code=404, detail="run not found")
     started = []
     for judge_id in body.judge_ids:
-        spec = get_judge(judge_id)
+        try:
+            spec = get_judge(state.store, judge_id)
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not os.environ.get(spec.api_key_env):
+            raise HTTPException(
+                status_code=400,
+                detail=f"missing environment variable: {spec.api_key_env}",
+            )
         judge_run_id = (body.judge_run_ids or {}).get(judge_id, judge_id)
         job_id = f"judge:{run_id}:{judge_run_id}"
 

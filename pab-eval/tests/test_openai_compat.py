@@ -10,10 +10,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from pab_eval.clients.openai_compat import OpenAICompatClient
+from pab_eval.clients.openai_compat import OpenAICompatClient, normalize_base_url
 from pab_eval.config import RunConfigCreate, build_client, load_env, resolve_persona
 from pab_eval.errors import ConfigError
-from pab_eval.judges.registry import JUDGES
 from pab_eval.persona import compose_persona
 from pab_eval.storage import keys
 from pab_eval.storage.base import InMemoryStore
@@ -43,6 +42,36 @@ def test_openai_compat_post_and_parse():
     assert out.text == "hello"
     assert captured["body"]["messages"][0]["role"] == "system"
     assert captured["body"]["temperature"] == 0.5
+
+
+def test_normalize_base_url_openai_default():
+    assert normalize_base_url("https://api.openai.com") == "https://api.openai.com/v1"
+    assert normalize_base_url("https://api.openai.com/v1") == "https://api.openai.com/v1"
+
+
+def test_normalize_base_url_google_ai_studio():
+    google = "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert normalize_base_url(google) == google
+    assert normalize_base_url(f"{google}/") == google
+
+
+def test_google_ai_studio_posts_to_openai_compat_endpoint():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = OpenAICompatClient(
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "gemini-key",
+        "gemini-2.5-flash-lite",
+        transport=httpx.MockTransport(handler),
+    )
+    client.complete(system=None, messages=[{"role": "user", "content": "hi"}], temperature=0.0)
+    assert captured["url"] == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
 
 
 def test_system_none_omits_system_message():
@@ -115,5 +144,4 @@ def test_env_not_overwritten(tmp_path, monkeypatch):
 
 def test_judge_keys_in_env_example():
     text = Path(__file__).resolve().parents[1].joinpath(".env.example").read_text(encoding="utf-8")
-    for spec in JUDGES.values():
-        assert spec.api_key_env in text
+    assert "OPENAI_JUDGE_KEY" in text

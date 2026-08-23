@@ -22,12 +22,18 @@ export default function ConfigsPage() {
         <ConfigsList />
       </section>
 
-      <div className="flex gap-4 text-sm">
+      <div className="flex flex-wrap gap-4 text-sm">
         <Link href="/" className="text-zinc-600 underline dark:text-zinc-400">
           Back to generate
         </Link>
         <Link href="/runs" className="text-zinc-600 underline dark:text-zinc-400">
           All runs
+        </Link>
+        <Link href="/dataset" className="text-zinc-600 underline dark:text-zinc-400">
+          Dataset
+        </Link>
+        <Link href="/judges" className="text-zinc-600 underline dark:text-zinc-400">
+          Judges manage
         </Link>
       </div>
     </main>

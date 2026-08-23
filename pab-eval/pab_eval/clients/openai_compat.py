@@ -11,6 +11,9 @@ from pab_eval.clients.base import Completion
 
 def normalize_base_url(base_url: str) -> str:
     base = base_url.rstrip("/")
+    # Google AI Studio OpenAI-compat: .../v1beta/openai/chat/completions (no trailing /v1).
+    if base.endswith("/openai"):
+        return base
     if not base.endswith("/v1"):
         base = f"{base}/v1"
     return base
