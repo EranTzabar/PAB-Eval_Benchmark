@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { JudgeForm } from "@/components/JudgeForm";
-import { returnPathLabel, safeReturnPath } from "@/lib/navigation";
+import { safeReturnPath } from "@/lib/navigation";
 
 function EditJudgeContent() {
   const params = useParams();
@@ -25,10 +24,6 @@ function EditJudgeContent() {
       <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
         <JudgeForm judgeId={judgeId} returnTo={returnTo} />
       </section>
-
-      <Link href={returnTo} className="text-sm text-zinc-600 underline dark:text-zinc-400">
-        {returnPathLabel(returnTo)}
-      </Link>
     </main>
   );
 }

@@ -1,17 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { ConfigForm } from "@/components/ConfigForm";
-import { returnPathLabel, safeReturnPath } from "@/lib/navigation";
+import { safeReturnPath } from "@/lib/navigation";
 
 function EditConfigContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const configId = params.configId as string;
-  const returnTo = safeReturnPath(searchParams.get("return"));
+  const returnTo = safeReturnPath(searchParams.get("return"), "/configs");
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl space-y-8 px-4 py-10">
@@ -25,10 +24,6 @@ function EditConfigContent() {
       <section className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
         <ConfigForm configId={configId} returnTo={returnTo} />
       </section>
-
-      <Link href={returnTo} className="text-sm text-zinc-600 underline dark:text-zinc-400">
-        {returnPathLabel(returnTo)}
-      </Link>
     </main>
   );
 }

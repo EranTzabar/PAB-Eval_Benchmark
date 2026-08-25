@@ -140,6 +140,13 @@ export default function HomePage() {
         </Link>
         <span className="mx-2 text-zinc-400">·</span>
         <Link
+          href="/personas"
+          className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        >
+          Personas
+        </Link>
+        <span className="mx-2 text-zinc-400">·</span>
+        <Link
           href="/judges"
           className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >

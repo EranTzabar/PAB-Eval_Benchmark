@@ -14,6 +14,12 @@ function personaDetails(persona: PersonaConfig): string {
   if (persona.persona_id) {
     lines.push(`Persona ID: ${persona.persona_id}`);
     if (persona.wrapper) lines.push(`Wrapper: ${persona.wrapper}`);
+    if (persona.structured_response) {
+      lines.push("Structured response: awareness / feelings / me tags");
+    }
+    if (persona.no_em_dash) {
+      lines.push("No em dash: forbid — in replies");
+    }
   } else if (persona.system_prompt) {
     lines.push(`System prompt: ${persona.system_prompt}`);
   }

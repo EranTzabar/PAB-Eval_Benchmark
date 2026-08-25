@@ -11,7 +11,7 @@ function personaLabel(persona: PersonaConfig): string {
     return "endpoint";
   }
   if (persona.persona_id) {
-    return `harness · ${persona.persona_id}${persona.wrapper ? ` (${persona.wrapper})` : ""}`;
+    return `harness · ${persona.persona_id}${persona.wrapper ? ` (${persona.wrapper})` : ""}${persona.structured_response ? " · structured" : ""}${persona.no_em_dash ? " · no em dash" : ""}`;
   }
   if (persona.system_prompt) {
     const preview = persona.system_prompt.replace(/\s+/g, " ").trim();
@@ -123,7 +123,7 @@ export function ConfigsList() {
                 </td>
                 <td className="px-4 py-3">
                   <Link
-                    href={`/configs/${encodeURIComponent(cfg.config_id)}/edit`}
+                    href={`/configs/${encodeURIComponent(cfg.config_id)}/edit?return=${encodeURIComponent("/configs")}`}
                     className="text-xs text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-200"
                   >
                     Edit

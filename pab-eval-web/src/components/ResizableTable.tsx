@@ -102,9 +102,9 @@ export function ResizableTable<T>({
             {columns.map((col, index) => (
               <th
                 key={col.id}
-                className="relative px-4 py-2 font-medium"
+                className="relative overflow-visible px-4 py-2 font-medium"
               >
-                <span className="block truncate pr-2">{col.header}</span>
+                <span className="block overflow-visible pr-2">{col.header}</span>
                 <span
                   role="separator"
                   aria-orientation="vertical"

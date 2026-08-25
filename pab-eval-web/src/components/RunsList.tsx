@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { ConfigDetailModal } from "@/components/ConfigDetailModal";
-import { listConfigSummaries, listRuns, renameRun } from "@/lib/api";
+import { deleteRun, listConfigSummaries, listRuns, renameRun } from "@/lib/api";
 import { isTrackableJobState } from "@/lib/runs";
 import type { ConfigSummary, JobState, RenameStatus, RunListItem } from "@/types/api";
 
@@ -71,6 +71,7 @@ export function RunsList() {
   const [saving, setSaving] = useState(false);
   const [renameStatus, setRenameStatus] = useState<RenameStatus | null>(null);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) {
@@ -130,6 +131,29 @@ export function RunsList() {
       setSaveError(err instanceof Error ? err.message : "Failed to rename run");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (runId: string) => {
+    if (
+      !window.confirm(
+        `Delete run "${runId}"? All responses, checkpoints, and judge scores for this run will be removed.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingRunId(runId);
+    setError(null);
+    try {
+      await deleteRun(runId);
+      setRuns((prev) => prev.filter((run) => run.run_id !== runId));
+      if (editingRunId === runId) {
+        cancelEdit();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete run");
+    } finally {
+      setDeletingRunId(null);
     }
   };
 
@@ -195,7 +219,7 @@ export function RunsList() {
       ) : null}
 
       <div
-        className={`overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700 ${saving ? "pointer-events-none opacity-60" : ""}`}
+        className={`overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700 ${saving || deletingRunId ? "pointer-events-none opacity-60" : ""}`}
       >
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
@@ -259,14 +283,28 @@ export function RunsList() {
                           </Link>
                         ) : null}
                         {editable ? (
-                          <button
-                            type="button"
-                            className="text-xs text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-200"
-                            onClick={() => startEdit(run.run_id)}
-                            disabled={editingRunId !== null}
-                          >
-                            Edit
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              className="text-xs text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-200"
+                              onClick={() => startEdit(run.run_id)}
+                              disabled={editingRunId !== null || deletingRunId !== null}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs text-red-600 underline hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                              onClick={() => void handleDelete(run.run_id)}
+                              disabled={
+                                editingRunId !== null ||
+                                deletingRunId !== null ||
+                                deletingRunId === run.run_id
+                              }
+                            >
+                              {deletingRunId === run.run_id ? "Deleting…" : "Delete"}
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     )}

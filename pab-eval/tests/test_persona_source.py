@@ -98,3 +98,26 @@ def test_memory_not_in_index_is_still_included(persona_files):
     mem.mkdir(exist_ok=True)
     (mem / "index.md").write_text("1. [First](001-first.md)\n", encoding="utf-8")
     assert "later-body" in compose_persona(LocalDirSource(persona_files))
+
+
+def test_response_format_appended(persona):
+    out = compose_persona(persona, structured_response=True)
+    assert "<awareness>" in out
+    assert "<feelings>" in out
+    assert "<me>" in out
+
+
+def test_response_format_off_by_default(persona):
+    out = compose_persona(persona)
+    assert "<awareness>" not in out
+
+
+def test_no_em_dash_appended(persona):
+    out = compose_persona(persona, no_em_dash=True)
+    assert "em dash" in out.lower()
+    assert "\u2014" in out
+
+
+def test_no_em_dash_off_by_default(persona):
+    out = compose_persona(persona)
+    assert "em dash" not in out.lower()

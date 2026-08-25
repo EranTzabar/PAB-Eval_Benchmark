@@ -44,6 +44,17 @@ class PersonaConfig(BaseModel):
     wrapper: Literal["minimal", "strict", "none"] = "minimal"
     system_prompt: str | None = None
     persona_id: str | None = None
+    structured_response: bool = False
+    no_em_dash: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def strip_legacy_fields(cls, data: object) -> object:
+        if isinstance(data, dict):
+            data = dict(data)
+            data.pop("persona_facts", None)
+            data.pop("persona_nature", None)
+        return data
 
     @model_validator(mode="after")
     def validate_persona_sources(self) -> PersonaConfig:
@@ -51,9 +62,10 @@ class PersonaConfig(BaseModel):
         has_persona = bool(self.persona_id)
 
         if self.mode == "endpoint":
-            if has_prompt or has_persona:
+            if has_prompt or has_persona or self.structured_response or self.no_em_dash:
                 raise ValueError(
-                    "endpoint mode must not set system_prompt or persona_id"
+                    "endpoint mode must not set system_prompt, persona_id, "
+                    "structured_response, or no_em_dash"
                 )
             return self
 
@@ -63,6 +75,10 @@ class PersonaConfig(BaseModel):
             raise ValueError("harness mode requires exactly one of system_prompt or persona_id")
         if has_prompt and self.wrapper != "minimal":
             raise ValueError("wrapper is only meaningful with persona_id")
+        if self.structured_response and (has_prompt or not has_persona):
+            raise ValueError("structured_response is only meaningful with persona_id")
+        if self.no_em_dash and (has_prompt or not has_persona):
+            raise ValueError("no_em_dash is only meaningful with persona_id")
         return self
 
 
@@ -129,6 +145,8 @@ def resolve_persona(config: RunConfig, store: ObjectStore) -> str | None:
         source,
         wrapper=config.persona.wrapper,
         name=config.persona.name,
+        structured_response=config.persona.structured_response,
+        no_em_dash=config.persona.no_em_dash,
     )
 
 

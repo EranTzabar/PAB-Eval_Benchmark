@@ -5,14 +5,15 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from pab_eval.api.deps import get_state
-from pab_eval.api.models import PersonaCreateJson
+from pab_eval.api.models import PersonaCreateJson, PersonaUpdateJson
 from pab_eval.api.stores import (
     create_persona_from_json,
     create_persona_from_zip,
     delete_persona,
-    get_persona_manifest,
+    get_persona_detail,
     list_personas,
     preview_persona,
+    update_persona_from_json,
 )
 from pab_eval.errors import ConfigError
 
@@ -52,15 +53,27 @@ async def upload(file: UploadFile = File(...)):
 @router.get("/{persona_id}")
 def get_one(persona_id: str):
     try:
-        manifest = get_persona_manifest(get_state().store, persona_id)
-        store = get_state().store
-        from pab_eval.storage import keys
-
-        prefix = keys.persona_prefix(persona_id)
-        files = [k[len(prefix) :] for k in store.list_keys(prefix)]
-        return {"manifest": manifest, "files": files}
+        return get_persona_detail(get_state().store, persona_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="persona not found") from None
+
+
+@router.put("/{persona_id}")
+def update(persona_id: str, body: PersonaUpdateJson):
+    try:
+        return update_persona_from_json(
+            get_state().store,
+            persona_id,
+            facts=body.facts,
+            nature=body.nature,
+            memories=body.memories,
+            name=body.name,
+            archetype=body.archetype,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="persona not found") from None
+    except ConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{persona_id}/preview")

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cancelRun, getRun, startRun, submitRunDecision } from "@/lib/api";
+import { isManifestConflictMessage } from "@/lib/runs";
 import { useRunEvents } from "@/lib/sse";
 import type { FailureDetail, Job, JobState, RunEvent, StartRunRequest } from "@/types/api";
 
@@ -179,11 +180,11 @@ export function GenerateRunPanel({
     }
   };
 
-  const handleContinue = async () => {
+  const handleContinue = async (force = resumeParams.force ?? false) => {
     setBusy(true);
     setActionError(null);
     try {
-      const newJob = await startRun(resumeParams);
+      const newJob = await startRun({ ...resumeParams, force });
       if (!mountedRef.current) return;
       setJob(newJob);
       setPendingDetail(null);
@@ -251,9 +252,21 @@ export function GenerateRunPanel({
       </dl>
 
       {job.error ? (
-        <pre className="overflow-x-auto rounded bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">
-          {job.error}
-        </pre>
+        <div className="space-y-2">
+          <pre className="overflow-x-auto rounded bg-red-50 p-2 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">
+            {job.error}
+          </pre>
+          {isManifestConflictMessage(job.error) ? (
+            <button
+              type="button"
+              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              onClick={() => void handleContinue(true)}
+              disabled={busy}
+            >
+              {busy ? "Retrying…" : "Retry with Force"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {(pendingDetail || job.pending_decision) && job.state === "awaiting_decision" ? (

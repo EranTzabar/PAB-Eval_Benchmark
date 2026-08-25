@@ -71,6 +71,41 @@ export interface PersonaConfig {
   wrapper?: "minimal" | "strict" | "none";
   system_prompt?: string | null;
   persona_id?: string | null;
+  structured_response?: boolean;
+  no_em_dash?: boolean;
+}
+
+export interface PersonaCreate {
+  persona_id?: string | null;
+  name?: string | null;
+  archetype?: string | null;
+  facts: string;
+  nature: string;
+  memories?: Record<string, string>;
+}
+
+export interface PersonaUpdate {
+  name?: string | null;
+  archetype?: string | null;
+  facts: string;
+  nature: string;
+  memories?: Record<string, string>;
+}
+
+export interface PersonaManifest {
+  persona_id: string;
+  name?: string | null;
+  archetype?: string | null;
+  memory_files: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonaDetail {
+  manifest: PersonaManifest;
+  facts: string;
+  nature: string;
+  files: string[];
 }
 
 export interface RunConfig {

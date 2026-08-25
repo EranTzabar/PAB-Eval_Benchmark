@@ -83,6 +83,22 @@ def validate_rows(rows: dict[str, DatasetViewRow], valid_ids: set[str]) -> None:
         validate_manual_scores(row)
 
 
+def remove_run_from_dataset_view(store: ObjectStore, run_id: str) -> bool:
+    """Drop dataset rows that reference a deleted generate run. Returns True if updated."""
+    key = keys.dataset_view()
+    if not store.exists(key):
+        return False
+    view = DatasetView.model_validate(store.get_json(key))
+    stale = [item_id for item_id, row in view.rows.items() if row.run_id == run_id]
+    if not stale:
+        return False
+    for item_id in stale:
+        del view.rows[item_id]
+    view.updated_at = datetime.now(timezone.utc)
+    store.put_json(key, view.model_dump(mode="json"))
+    return True
+
+
 def patch_dataset_view_run_id(store: ObjectStore, old_id: str, new_id: str) -> bool:
     """Rewrite run_id in saved rows when a generate run is renamed. Returns True if updated."""
     if old_id == new_id:

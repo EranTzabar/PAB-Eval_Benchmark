@@ -84,6 +84,36 @@ def _work_items(prompts, chains) -> list[tuple[str, object]]:
     return items
 
 
+def _persona_wrapper_value(config: RunConfig) -> str | None:
+    if config.persona.persona_id:
+        return config.persona.wrapper
+    return None
+
+
+def _persona_source_value(config: RunConfig) -> str | None:
+    persona = config.persona
+    if persona.mode != "harness":
+        return None
+    if persona.system_prompt:
+        return "inline"
+    if persona.persona_id:
+        return f"persona:{persona.persona_id}"
+    return None
+
+
+def _manifest_missing_persona_fields(manifest: RunManifest) -> bool:
+    return manifest.persona_sha256 is None and manifest.persona_wrapper is None
+
+
+def _run_has_generate_progress(store: ObjectStore, run_id: str) -> bool:
+    cp_key = keys.generate_checkpoint(run_id)
+    if store.exists(cp_key):
+        cp = store.get_json(cp_key)
+        if cp.get("completed") or cp.get("failed"):
+            return True
+    return bool(store.list_keys(keys.responses_prefix(run_id)))
+
+
 def _check_manifest_conflict(
     store: ObjectStore,
     run_id: str,
@@ -98,7 +128,7 @@ def _check_manifest_conflict(
     existing = RunManifest.model_validate(store.get_json(key))
     current = {
         "persona_sha256": _persona_sha256(system),
-        "persona_wrapper": config.persona.wrapper if config.persona.persona_id else None,
+        "persona_wrapper": _persona_wrapper_value(config),
         "target_model": config.target.model,
         "dataset_sha256": _dataset_sha256(dataset),
     }
@@ -108,9 +138,66 @@ def _check_manifest_conflict(
         "target_model": existing.target_model,
         "dataset_sha256": existing.dataset_sha256,
     }
+    if not force and _manifest_missing_persona_fields(existing) and not _run_has_generate_progress(store, run_id):
+        if (
+            stored["target_model"] != current["target_model"]
+            or stored["dataset_sha256"] != current["dataset_sha256"]
+        ):
+            diff = {
+                k: (stored[k], current[k])
+                for k in ("target_model", "dataset_sha256")
+                if stored[k] != current[k]
+            }
+            raise RunConflictError(f"manifest mismatch: {diff}")
+        return
     if current != stored and not force:
+        if (
+            _manifest_missing_persona_fields(existing)
+            and existing.persona_mode != config.persona.mode
+        ):
+            raise RunConflictError(
+                f"run {run_id!r} was started in {existing.persona_mode!r} mode but the "
+                f"config now uses {config.persona.mode!r} mode. Use a new run ID for a clean "
+                f"run, or enable force to update the manifest and continue (existing responses "
+                f"may not match the new persona setup)."
+            )
         diff = {k: (stored[k], current[k]) for k in current if stored[k] != current[k]}
-        raise RunConflictError(f"manifest mismatch: {diff}")
+        raise RunConflictError(
+            f"manifest mismatch: {diff}. "
+            "Enable force to update the manifest and reuse this run ID."
+        )
+
+
+def _sync_manifest(
+    store: ObjectStore,
+    run_id: str,
+    config: RunConfig,
+    system: str | None,
+    dataset: Dataset,
+    persona_source: str | None,
+    *,
+    force: bool,
+) -> None:
+    key = keys.run_manifest(run_id)
+    if not store.exists(key):
+        return
+    existing = RunManifest.model_validate(store.get_json(key))
+    if not force and not _manifest_missing_persona_fields(existing):
+        return
+    updated = existing.model_copy(
+        update={
+            "config_id": config.config_id,
+            "persona_mode": config.persona.mode,
+            "persona_wrapper": _persona_wrapper_value(config),
+            "persona_source": persona_source,
+            "persona_sha256": _persona_sha256(system),
+            "target_base_url": config.target.base_url,
+            "target_model": config.target.model,
+            "temperature": config.target.temperature,
+            "dataset_sha256": _dataset_sha256(dataset),
+        }
+    )
+    store.put_json(key, updated.model_dump(mode="json"))
 
 
 def generate(
@@ -130,11 +217,8 @@ def generate(
     filters = filters or RunFilters()
     _check_manifest_conflict(store, run_id, config, system, dataset, force)
 
-    persona_source = None
-    if config.persona.mode == "harness":
-        persona_source = (
-            "inline" if config.persona.system_prompt else f"persona:{config.persona.persona_id}"
-        )
+    persona_source = _persona_source_value(config)
+    _sync_manifest(store, run_id, config, system, dataset, persona_source, force=force)
 
     manifest_key = keys.run_manifest(run_id)
     if not store.exists(manifest_key):
@@ -142,7 +226,7 @@ def generate(
             run_id=run_id,
             config_id=config.config_id,
             persona_mode=config.persona.mode,
-            persona_wrapper=config.persona.wrapper if config.persona.persona_id else None,
+            persona_wrapper=_persona_wrapper_value(config),
             persona_source=persona_source,
             persona_sha256=_persona_sha256(system),
             target_base_url=config.target.base_url,

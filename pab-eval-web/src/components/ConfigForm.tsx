@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { createConfig, getConfig, updateConfig } from "@/lib/api";
+import { createConfig, getConfig, listPersonas, updateConfig } from "@/lib/api";
 import { returnPathLabel } from "@/lib/navigation";
-import type { PersonaConfig, RunConfig, RunConfigCreate } from "@/types/api";
+import type { PersonaConfig, PersonaManifest, RunConfig, RunConfigCreate } from "@/types/api";
 
 type HarnessSource = "system_prompt" | "persona_id";
 
@@ -22,6 +22,8 @@ function buildPersona(
   wrapper: PersonaConfig["wrapper"],
   personaName: string,
   personaArchetype: string,
+  structuredResponse: boolean,
+  noEmDash: boolean,
 ): PersonaConfig {
   if (mode === "endpoint") {
     return { mode: "endpoint" };
@@ -36,6 +38,8 @@ function buildPersona(
   } else {
     persona.persona_id = personaId.trim();
     persona.wrapper = wrapper ?? "minimal";
+    if (structuredResponse) persona.structured_response = true;
+    if (noEmDash) persona.no_em_dash = true;
   }
 
   return persona;
@@ -58,46 +62,17 @@ function validateForm(
       return "System prompt is required for harness mode";
     }
     if (harnessSource === "persona_id" && !personaId.trim()) {
-      return "Persona ID is required for harness mode";
+      return "Persona is required for harness mode";
     }
   }
   return null;
 }
 
-function applyConfigToForm(config: RunConfig, setters: {
-  setName: (v: string) => void;
-  setBaseUrl: (v: string) => void;
-  setModel: (v: string) => void;
-  setTemperature: (v: number) => void;
-  setTimeoutS: (v: number) => void;
-  setPersonaMode: (v: PersonaConfig["mode"]) => void;
-  setHarnessSource: (v: HarnessSource) => void;
-  setSystemPrompt: (v: string) => void;
-  setPersonaId: (v: string) => void;
-  setWrapper: (v: PersonaConfig["wrapper"]) => void;
-  setPersonaName: (v: string) => void;
-  setPersonaArchetype: (v: string) => void;
-}) {
-  setters.setName(config.name);
-  setters.setBaseUrl(config.target.base_url);
-  setters.setModel(config.target.model);
-  setters.setTemperature(config.target.temperature ?? 0.7);
-  setters.setTimeoutS(config.target.timeout_s ?? 120);
-  setters.setPersonaMode(config.persona.mode);
-  if (config.persona.mode === "harness") {
-    if (config.persona.persona_id) {
-      setters.setHarnessSource("persona_id");
-      setters.setPersonaId(config.persona.persona_id);
-      setters.setWrapper(config.persona.wrapper ?? "minimal");
-      setters.setSystemPrompt("");
-    } else {
-      setters.setHarnessSource("system_prompt");
-      setters.setSystemPrompt(config.persona.system_prompt ?? "");
-      setters.setPersonaId("");
-    }
-    setters.setPersonaName(config.persona.name ?? "");
-    setters.setPersonaArchetype(config.persona.archetype ?? "");
+function personaOptionLabel(persona: PersonaManifest): string {
+  if (persona.name) {
+    return `${persona.persona_id} — ${persona.name}`;
   }
+  return persona.persona_id;
 }
 
 export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps) {
@@ -114,10 +89,19 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
   const [wrapper, setWrapper] = useState<PersonaConfig["wrapper"]>("minimal");
   const [personaName, setPersonaName] = useState("");
   const [personaArchetype, setPersonaArchetype] = useState("");
+  const [structuredResponse, setStructuredResponse] = useState(false);
+  const [noEmDash, setNoEmDash] = useState(false);
+  const [personas, setPersonas] = useState<PersonaManifest[]>([]);
   const [loading, setLoading] = useState(isEdit);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState<RunConfig | null>(null);
+
+  useEffect(() => {
+    listPersonas()
+      .then(setPersonas)
+      .catch(() => setPersonas([]));
+  }, []);
 
   useEffect(() => {
     if (!configId) return;
@@ -125,20 +109,30 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
     setError(null);
     getConfig(configId)
       .then((config) => {
-        applyConfigToForm(config, {
-          setName,
-          setBaseUrl,
-          setModel,
-          setTemperature,
-          setTimeoutS,
-          setPersonaMode,
-          setHarnessSource,
-          setSystemPrompt,
-          setPersonaId,
-          setWrapper,
-          setPersonaName,
-          setPersonaArchetype,
-        });
+        setName(config.name);
+        setBaseUrl(config.target.base_url);
+        setModel(config.target.model);
+        setTemperature(config.target.temperature ?? 0.7);
+        setTimeoutS(config.target.timeout_s ?? 120);
+        setPersonaMode(config.persona.mode);
+        if (config.persona.mode === "harness") {
+          if (config.persona.persona_id) {
+            setHarnessSource("persona_id");
+            setPersonaId(config.persona.persona_id);
+            setWrapper(config.persona.wrapper ?? "minimal");
+            setStructuredResponse(config.persona.structured_response ?? false);
+            setNoEmDash(config.persona.no_em_dash ?? false);
+            setSystemPrompt("");
+          } else {
+            setHarnessSource("system_prompt");
+            setSystemPrompt(config.persona.system_prompt ?? "");
+            setPersonaId("");
+            setStructuredResponse(false);
+            setNoEmDash(false);
+          }
+          setPersonaName(config.persona.name ?? "");
+          setPersonaArchetype(config.persona.archetype ?? "");
+        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load config");
@@ -178,6 +172,8 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
         wrapper,
         personaName,
         personaArchetype,
+        structuredResponse,
+        noEmDash,
       ),
     };
 
@@ -332,7 +328,7 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
                   onChange={() => setHarnessSource("persona_id")}
                   disabled={submitting}
                 />
-                Persona ID (R2 pack)
+                Persona pack (R2)
               </label>
             </div>
 
@@ -350,15 +346,34 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
             ) : (
               <>
                 <label className="block space-y-1">
-                  <span className="text-sm font-medium">Persona ID</span>
-                  <input
-                    type="text"
+                  <span className="text-sm font-medium">Persona</span>
+                  <select
                     className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-600 dark:bg-zinc-900"
                     value={personaId}
                     onChange={(e) => setPersonaId(e.target.value)}
                     disabled={submitting}
-                  />
+                  >
+                    <option value="">Select a persona…</option>
+                    {personaId &&
+                    !personas.some((persona) => persona.persona_id === personaId) ? (
+                      <option value={personaId}>{personaId} (not in list)</option>
+                    ) : null}
+                    {personas.map((persona) => (
+                      <option key={persona.persona_id} value={persona.persona_id}>
+                        {personaOptionLabel(persona)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
+                {personas.length === 0 ? (
+                  <p className="text-sm text-zinc-500">
+                    No personas yet.{" "}
+                    <Link href="/personas/new" className="underline">
+                      Create one
+                    </Link>
+                    .
+                  </p>
+                ) : null}
                 <label className="block space-y-1">
                   <span className="text-sm font-medium">Wrapper</span>
                   <select
@@ -372,11 +387,29 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
                     <option value="none">none</option>
                   </select>
                 </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={structuredResponse}
+                    onChange={(e) => setStructuredResponse(e.target.checked)}
+                    disabled={submitting}
+                  />
+                  Structured response — ask model for &lt;awareness&gt;, &lt;feelings&gt;, &lt;me&gt; tags
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={noEmDash}
+                    onChange={(e) => setNoEmDash(e.target.checked)}
+                    disabled={submitting}
+                  />
+                  No em dash — forbid the — character in replies
+                </label>
               </>
             )}
 
             <label className="block space-y-1">
-              <span className="text-sm font-medium">Persona name (optional)</span>
+              <span className="text-sm font-medium">Persona name override (optional)</span>
               <input
                 type="text"
                 className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
@@ -386,7 +419,7 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-sm font-medium">Archetype (optional)</span>
+              <span className="text-sm font-medium">Archetype override (optional)</span>
               <input
                 type="text"
                 className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
@@ -413,7 +446,7 @@ export function ConfigForm({ configId, returnTo = "/configs" }: ConfigFormProps)
           href={returnTo}
           className="rounded-md border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-600"
         >
-          Cancel
+          {returnPathLabel(returnTo)}
         </Link>
       </div>
     </form>

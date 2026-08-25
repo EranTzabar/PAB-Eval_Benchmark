@@ -96,7 +96,7 @@ export function JudgesList() {
                 </td>
                 <td className="px-4 py-3">
                   <Link
-                    href={`/judges/${encodeURIComponent(judge.judge_id)}/edit`}
+                    href={`/judges/${encodeURIComponent(judge.judge_id)}/edit?return=${encodeURIComponent("/judges")}`}
                     className="text-xs underline"
                   >
                     Edit

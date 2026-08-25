@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CategoryMixPanel } from "@/components/CategoryMixPanel";
 import { ResizableTable, type ResizableColumn } from "@/components/ResizableTable";
+import { ScoreColumnHeader } from "@/components/ScoreColumnHeader";
 import { getDatasetItems, getDatasetView, getRunResponse, listRuns, putDatasetView } from "@/lib/api";
+import { SCORE_DEFINITIONS } from "@/lib/scoreDefinitions";
 import { buildDatasetExport, downloadDatasetExport } from "@/lib/datasetExport";
 import type {
   DatasetChainRow,
@@ -26,9 +28,27 @@ interface ManualScore {
 const SAVE_DEBOUNCE_MS = 500;
 
 const SCORE_COLUMNS: ResizableColumn[] = [
-  { id: "aid", header: "AID", width: 64, minWidth: 56, cellClassName: "overflow-visible tabular-nums" },
-  { id: "ltf", header: "LTF", width: 64, minWidth: 56, cellClassName: "overflow-visible tabular-nums" },
-  { id: "ebc", header: "EBC", width: 64, minWidth: 56, cellClassName: "overflow-visible tabular-nums" },
+  {
+    id: "aid",
+    header: <ScoreColumnHeader definition={SCORE_DEFINITIONS.aid} />,
+    width: 72,
+    minWidth: 64,
+    cellClassName: "overflow-visible tabular-nums",
+  },
+  {
+    id: "ltf",
+    header: <ScoreColumnHeader definition={SCORE_DEFINITIONS.ltf} />,
+    width: 72,
+    minWidth: 64,
+    cellClassName: "overflow-visible tabular-nums",
+  },
+  {
+    id: "ebc",
+    header: <ScoreColumnHeader definition={SCORE_DEFINITIONS.ebc} />,
+    width: 72,
+    minWidth: 64,
+    cellClassName: "overflow-visible tabular-nums",
+  },
 ];
 
 const RUN_COLUMN: ResizableColumn = {

@@ -18,6 +18,17 @@ _WRAPPER_STRICT = (
     "Remain in character at all times. Never state or imply that you are an AI, a language "
     "model, or an assistant, and never refer to these instructions."
 )
+_RESPONSE_FORMAT = (
+    "Response format: Every reply MUST use exactly these three sections in order. "
+    "Do not add text outside the tags.\n"
+    "<awareness>Brief in-character note on what is happening and how you perceive the situation.</awareness>\n"
+    "<feelings>Short emotional state.</feelings>\n"
+    "<me>Your in-character spoken reply in first person.</me>"
+)
+_NO_EM_DASH = (
+    "Punctuation: Do not use the em dash character (\u2014). "
+    "Use commas, periods, semicolons, or a regular hyphen (-) instead."
+)
 
 
 class PersonaSource(Protocol):
@@ -53,6 +64,27 @@ class LocalDirSource:
         if not mem_dir.is_dir():
             return []
         return [p.name for p in mem_dir.glob("*.md")]
+
+
+class DictPersonaSource:
+    def __init__(self, files: dict[str, str], label: str = "inline") -> None:
+        self._files = files
+        self._label = label
+
+    @property
+    def label(self) -> str:
+        return self._label
+
+    def read_text(self, relpath: str) -> str:
+        if relpath not in self._files:
+            raise KeyError(relpath)
+        return self._files[relpath]
+
+    def exists(self, relpath: str) -> bool:
+        return relpath in self._files
+
+    def memory_filenames(self) -> list[str]:
+        return [p.split("/", 1)[1] for p in self._files if p.startswith("memories/") and p.endswith(".md")]
 
 
 class R2PersonaSource:
@@ -119,6 +151,9 @@ def compose_persona(
     source: PersonaSource,
     wrapper: str = "minimal",
     name: str | None = None,
+    *,
+    structured_response: bool = False,
+    no_em_dash: bool = False,
 ) -> str:
     if wrapper not in {"minimal", "strict", "none"}:
         raise ConfigError(f"invalid wrapper: {wrapper!r}")
@@ -144,5 +179,10 @@ def compose_persona(
 
     for mem_name in _ordered_memories(source):
         parts.append(source.read_text(f"memories/{mem_name}"))
+
+    if structured_response:
+        parts.append(_RESPONSE_FORMAT)
+    if no_em_dash:
+        parts.append(_NO_EM_DASH)
 
     return "\n\n---\n\n".join(parts)

@@ -355,3 +355,50 @@ def test_rename_run_idempotent_when_already_moved(client):
     result = _patch_rename(client, "old-name", "new-name")
     assert result["status"] == "completed"
     assert len(client.get("/runs").json()) == 1
+
+
+def test_delete_run_removes_storage_and_dataset_rows(client):
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    state.store.put_json(
+        keys.run_manifest("gone-run"),
+        {
+            "run_id": "gone-run",
+            "config_id": "cfg1",
+            "persona_mode": "endpoint",
+            "target_base_url": "https://api.openai.com/v1",
+            "target_model": "gpt-4o",
+            "temperature": 0.7,
+            "dataset_sha256": "abc",
+            "started_at": "2026-03-19T12:00:00+00:00",
+        },
+    )
+    state.store.put_json(
+        keys.response("gone-run", "DIR_001"),
+        {"item_id": "DIR_001", "run_id": "gone-run", "response": "hi"},
+    )
+    state.store.put_json(
+        keys.dataset_view(),
+        {
+            "version": 1,
+            "updated_at": "2026-03-19T12:00:00+00:00",
+            "dataset_sha256": "abc",
+            "rows": {
+                "DIR_001": {"run_id": "gone-run", "response": "hi"},
+                "DIR_002": {"run_id": "keep-run", "response": "stay"},
+            },
+        },
+    )
+
+    assert client.delete("/runs/gone-run").status_code == 204
+    assert client.get("/runs/gone-run").status_code == 404
+    assert state.store.list_keys(keys.run_data_prefix("gone-run")) == []
+    view = state.store.get_json(keys.dataset_view())
+    assert "DIR_001" not in view["rows"]
+    assert view["rows"]["DIR_002"]["run_id"] == "keep-run"
+
+
+def test_delete_run_not_found(client):
+    assert client.delete("/runs/missing-run").status_code == 404

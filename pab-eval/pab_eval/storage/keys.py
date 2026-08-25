@@ -22,6 +22,10 @@ def run_manifest(run_id: str) -> str:
     return f"{_run(run_id)}/run.json"
 
 
+def run_data_prefix(run_id: str) -> str:
+    return f"{_run(run_id)}/"
+
+
 def response(run_id: str, item_id: str) -> str:
     return f"{_run(run_id)}/responses/{item_id}.json"
 

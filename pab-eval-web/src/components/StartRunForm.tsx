@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { attachToActiveRun, findActiveGenerateRun, startRun } from "@/lib/api";
-import { isJobAlreadyRunningMessage, isTrackableJobState } from "@/lib/runs";
+import { isJobAlreadyRunningMessage, isManifestConflictMessage } from "@/lib/runs";
 import type { Job, OnFailure, StartRunRequest } from "@/types/api";
 
 import { ConfigSelect } from "./ConfigSelect";
@@ -27,8 +27,10 @@ export function StartRunForm({
   const [configId, setConfigId] = useState(initialConfigId ?? "");
   const [runId, setRunId] = useState("");
   const [onFailure, setOnFailure] = useState<OnFailure>("ask");
+  const [force, setForce] = useState(false);
   const [smokeTest, setSmokeTest] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manifestConflict, setManifestConflict] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const canSubmit =
@@ -38,18 +40,21 @@ export function StartRunForm({
     configId &&
     RUN_ID_PATTERN.test(runId);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildStartParams = (useForce: boolean): StartRunRequest => ({
+    config_id: configId,
+    run_id: runId,
+    on_failure: onFailure,
+    force: useForce,
+    filters: smokeTest ? { ids: ["DIR_001", "DIR_002"] } : undefined,
+  });
+
+  const startGenerateRun = async (useForce: boolean) => {
     if (!canSubmit) return;
 
     setSubmitting(true);
     setError(null);
-    const startParams: StartRunRequest = {
-      config_id: configId,
-      run_id: runId,
-      on_failure: onFailure,
-      filters: smokeTest ? { ids: ["DIR_001", "DIR_002"] } : undefined,
-    };
+    setManifestConflict(false);
+    const startParams = buildStartParams(useForce);
     try {
       const job = await startRun(startParams);
       onStarted(startParams, job);
@@ -66,10 +71,19 @@ export function StartRunForm({
           // fall through to error
         }
       }
+      if (isManifestConflictMessage(message)) {
+        setManifestConflict(true);
+        setForce(true);
+      }
       setError(message);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await startGenerateRun(force);
   };
 
   return (
@@ -104,6 +118,16 @@ export function StartRunForm({
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
+          checked={force}
+          onChange={(e) => setForce(e.target.checked)}
+          disabled={disabled || submitting}
+        />
+        Force — update run manifest if config/persona changed (reuse run ID)
+      </label>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
           checked={smokeTest}
           onChange={(e) => setSmokeTest(e.target.checked)}
           disabled={disabled || submitting}
@@ -111,15 +135,38 @@ export function StartRunForm({
         Smoke test — first 2 prompts only (DIR_001, DIR_002)
       </label>
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? (
+        <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+          {manifestConflict ? (
+            <p className="text-sm text-amber-900 dark:text-amber-100">
+              Persona setup changed since this run was created (for example: no em dash, structured
+              response, wrapper, or persona pack edits). Update the manifest to reuse this run ID.
+            </p>
+          ) : (
+            <p className="text-sm text-red-600">{error}</p>
+          )}
+          {manifestConflict ? (
+            <button
+              type="button"
+              className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              onClick={() => void startGenerateRun(true)}
+              disabled={!canSubmit}
+            >
+              {submitting ? "Starting…" : "Update manifest and start"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
-      <button
-        type="submit"
-        className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-        disabled={!canSubmit}
-      >
-        {submitting ? "Starting…" : "Start generate run"}
-      </button>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="submit"
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          disabled={!canSubmit}
+        >
+          {submitting ? "Starting…" : manifestConflict ? "Start again" : "Start generate run"}
+        </button>
+      </div>
     </form>
   );
 }

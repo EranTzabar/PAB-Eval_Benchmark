@@ -10,6 +10,10 @@ export function isJobAlreadyRunningMessage(message: string): boolean {
   return message.includes("job already running");
 }
 
+export function isManifestConflictMessage(message: string): boolean {
+  return message.includes("manifest mismatch");
+}
+
 export function startParamsFromRunDetail(
   detail: RunDetail,
   fallback?: Partial<StartRunRequest>,

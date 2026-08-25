@@ -23,6 +23,16 @@ class PersonaCreateJson(BaseModel):
     memories: dict[str, str] = Field(default_factory=dict)
 
 
+class PersonaUpdateJson(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    archetype: str | None = None
+    facts: str
+    nature: str
+    memories: dict[str, str] = Field(default_factory=dict)
+
+
 class StartRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -12,7 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from pab_eval.api.deps import get_state
 from pab_eval.api.models import DecisionRequest, RenameRunRequest, StartJudgeRequest, StartRunRequest
-from pab_eval.api.stores import get_config
+from pab_eval.api.stores import delete_run, get_config
 from pab_eval.config import build_client, resolve_persona
 from pab_eval.dataset import default_dataset_paths, load_dataset
 from pab_eval.errors import ConfigError, JobAlreadyRunningError, RunConflictError
@@ -26,7 +26,7 @@ from pab_eval.runner import generate
 from pab_eval.schemas import Progress
 from pab_eval.storage import keys
 from pab_eval.storage.run_rename import plan_rename, rename_run
-from pab_eval.dataset_view import patch_dataset_view_run_id
+from pab_eval.dataset_view import patch_dataset_view_run_id, remove_run_from_dataset_view
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -92,6 +92,19 @@ def start_run(body: StartRunRequest):
         raise HTTPException(status_code=503, detail="dataset not found")
     dataset = load_dataset(prompts_path, chains_path)
 
+    try:
+        system = resolve_persona(config, state.store)
+        build_client(config.target)
+    except ConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    from pab_eval.runner import _check_manifest_conflict
+
+    try:
+        _check_manifest_conflict(state.store, body.run_id, config, system, dataset, body.force)
+    except RunConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     def work(ctx: JobContext):
         job = ctx.job
         gate = _gate_for_request(body.on_failure, job, state.bus, ctx.cancel_event)
@@ -102,7 +115,6 @@ def start_run(body: StartRunRequest):
             state.bus.publish(Event(type="progress", job=job.model_copy(deep=True), at=datetime.now(timezone.utc)))
 
         try:
-            system = resolve_persona(config, state.store)
             client = build_client(config.target)
         except ConfigError as exc:
             raise exc
@@ -313,6 +325,52 @@ _TERMINAL_JOB_STATES = {
     JobState.stopped,
     JobState.cancelled,
 }
+
+_ACTIVE_JOB_STATES = {JobState.running, JobState.awaiting_decision}
+
+
+def _run_has_active_job(state, run_id: str) -> bool:
+    gen = state.jobs.get(f"generate:{run_id}")
+    if gen and gen.state in _ACTIVE_JOB_STATES:
+        return True
+    for job in state.jobs.list():
+        if job.run_id == run_id and job.state in _ACTIVE_JOB_STATES:
+            return True
+    return False
+
+
+def _drop_run_jobs(state, run_id: str) -> None:
+    for job in state.jobs.list():
+        if job.run_id != run_id:
+            continue
+        try:
+            state.jobs.drop(job.job_id)
+        except JobAlreadyRunningError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"cannot delete while job is active: {job.job_id}",
+            ) from None
+
+
+@router.delete("/{run_id}", status_code=204)
+def delete_run_endpoint(run_id: str):
+    state = get_state()
+
+    rename = state.rename_tracker.get(run_id)
+    if rename and rename.status == "in_progress":
+        raise HTTPException(status_code=409, detail="cannot delete while rename is in progress")
+
+    if _run_has_active_job(state, run_id):
+        raise HTTPException(status_code=409, detail="cannot delete while run is active")
+
+    try:
+        delete_run(state.store, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+
+    remove_run_from_dataset_view(state.store, run_id)
+    _drop_run_jobs(state, run_id)
+    state.rename_tracker.clear(run_id)
 
 
 def _snapshot_event(job):

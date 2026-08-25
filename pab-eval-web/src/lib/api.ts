@@ -11,6 +11,10 @@ import type {
   JudgeConfigUpdate,
   JudgeRunDetail,
   JudgeRunListItem,
+  PersonaCreate,
+  PersonaDetail,
+  PersonaManifest,
+  PersonaUpdate,
   RunConfig,
   RunConfigCreate,
   RunDetail,
@@ -149,6 +153,37 @@ export async function updateConfig(
   });
 }
 
+export async function createPersona(body: PersonaCreate): Promise<PersonaManifest> {
+  return request("/personas", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listPersonas(): Promise<PersonaManifest[]> {
+  return request("/personas");
+}
+
+export async function getPersona(personaId: string): Promise<PersonaDetail> {
+  return request(`/personas/${encodeURIComponent(personaId)}`);
+}
+
+export async function updatePersona(
+  personaId: string,
+  body: PersonaUpdate,
+): Promise<PersonaManifest> {
+  return request(`/personas/${encodeURIComponent(personaId)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deletePersona(personaId: string): Promise<void> {
+  return request(`/personas/${encodeURIComponent(personaId)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function startRun(body: StartRunRequest): Promise<Job> {
   return request("/runs", {
     method: "POST",
@@ -158,6 +193,12 @@ export async function startRun(body: StartRunRequest): Promise<Job> {
 
 export async function listRuns(): Promise<RunListItem[]> {
   return request("/runs");
+}
+
+export async function deleteRun(runId: string): Promise<void> {
+  return request(`/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getRunResponse(

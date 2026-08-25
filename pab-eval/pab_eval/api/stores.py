@@ -20,7 +20,7 @@ from pab_eval.dataset_view import (
 )
 from pab_eval.errors import ConfigError, DatasetError
 from pab_eval.judges.config import JudgeConfig, JudgeConfigCreate, JudgeConfigUpdate
-from pab_eval.persona import LocalDirSource, R2PersonaSource, compose_persona
+from pab_eval.persona import DictPersonaSource, LocalDirSource, R2PersonaSource, compose_persona
 from pab_eval.schemas import PersonaManifest
 from pab_eval.storage import keys
 from pab_eval.storage.base import ObjectStore
@@ -146,6 +146,26 @@ def get_persona_manifest(store: ObjectStore, persona_id: str) -> PersonaManifest
     return PersonaManifest.model_validate(store.get_json(keys.persona_manifest(persona_id)))
 
 
+def get_persona_detail(store: ObjectStore, persona_id: str) -> dict:
+    manifest = get_persona_manifest(store, persona_id)
+    prefix = keys.persona_prefix(persona_id)
+    files = sorted(
+        k[len(prefix) :]
+        for k in store.list_keys(prefix)
+        if not k.endswith("/manifest.json")
+    )
+    facts_key = keys.persona_file(persona_id, "persona_facts.md")
+    nature_key = keys.persona_file(persona_id, "persona_nature.md")
+    if not store.exists(facts_key) or not store.exists(nature_key):
+        raise KeyError(persona_id)
+    return {
+        "manifest": manifest,
+        "facts": store.get_text(facts_key),
+        "nature": store.get_text(nature_key),
+        "files": files,
+    }
+
+
 def _write_persona_files(
     store: ObjectStore,
     persona_id: str,
@@ -178,25 +198,8 @@ def _write_persona_files(
     return manifest
 
 
-class _MemoryPersonaSource:
-    def __init__(self, files: dict[str, str], label: str) -> None:
-        self._files = files
-        self.label = label
-
-    def read_text(self, relpath: str) -> str:
-        if relpath not in self._files:
-            raise KeyError(relpath)
-        return self._files[relpath]
-
-    def exists(self, relpath: str) -> bool:
-        return relpath in self._files
-
-    def memory_filenames(self) -> list[str]:
-        return [p.split("/", 1)[1] for p in self._files if p.startswith("memories/") and p.endswith(".md")]
-
-
-def _memory_source_from_files(files: dict[str, str]) -> _MemoryPersonaSource:
-    return _MemoryPersonaSource(files, "upload")
+def _memory_source_from_files(files: dict[str, str]) -> DictPersonaSource:
+    return DictPersonaSource(files, label="upload")
 
 
 def create_persona_from_json(
@@ -210,6 +213,8 @@ def create_persona_from_json(
     archetype: str | None = None,
 ) -> PersonaManifest:
     persona_id = persona_id or uuid.uuid4().hex[:12]
+    if store.exists(keys.persona_manifest(persona_id)):
+        raise ConfigError(f"persona already exists: {persona_id}")
     files = {
         "persona_facts.md": facts,
         "persona_nature.md": nature,
@@ -219,6 +224,56 @@ def create_persona_from_json(
     manifest = manifest.model_copy(update={"name": name, "archetype": archetype})
     store.put_json(keys.persona_manifest(persona_id), manifest.model_dump(mode="json"))
     return manifest
+
+
+def update_persona_from_json(
+    store: ObjectStore,
+    persona_id: str,
+    *,
+    facts: str,
+    nature: str,
+    memories: dict[str, str],
+    name: str | None = None,
+    archetype: str | None = None,
+) -> PersonaManifest:
+    existing = get_persona_manifest(store, persona_id)
+    prefix = keys.persona_prefix(persona_id)
+    memory_files: dict[str, str] = {}
+    if memories:
+        memory_files = {f"memories/{k}": v for k, v in memories.items()}
+    else:
+        for key in store.list_keys(prefix):
+            relpath = key[len(prefix) :]
+            if relpath.startswith("memories/") and relpath.endswith(".md"):
+                memory_files[relpath] = store.get_text(key)
+    files = {
+        "persona_facts.md": facts,
+        "persona_nature.md": nature,
+        **memory_files,
+    }
+    source = _memory_source_from_files(files)
+    compose_persona(source, wrapper="minimal")
+    for relpath, content in files.items():
+        store.put_text(
+            keys.persona_file(persona_id, relpath),
+            content,
+            "text/markdown" if relpath.endswith(".md") else "application/json",
+        )
+    memory_names = sorted(
+        p.split("/", 1)[1]
+        for p in files
+        if p.startswith("memories/") and p.endswith(".md")
+    )
+    updated = existing.model_copy(
+        update={
+            "name": name,
+            "archetype": archetype,
+            "memory_files": memory_names,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+    store.put_json(keys.persona_manifest(persona_id), updated.model_dump(mode="json"))
+    return updated
 
 
 def create_persona_from_zip(store: ObjectStore, data: bytes) -> PersonaManifest:
@@ -280,3 +335,10 @@ def put_dataset_view(store: ObjectStore, body: DatasetViewUpdate) -> DatasetView
     )
     store.put_json(keys.dataset_view(), view.model_dump(mode="json"))
     return view
+
+
+def delete_run(store: ObjectStore, run_id: str) -> int:
+    prefix = keys.run_data_prefix(run_id)
+    if not store.list_keys(prefix):
+        raise KeyError(run_id)
+    return store.delete_prefix(prefix)
