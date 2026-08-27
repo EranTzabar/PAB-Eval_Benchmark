@@ -361,6 +361,13 @@ export async function deleteJudge(judgeId: string): Promise<void> {
   return request(`/judges/${encodeURIComponent(judgeId)}`, { method: "DELETE" });
 }
 
+export async function deleteJudgeRun(runId: string, judgeRunId: string): Promise<void> {
+  return request(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function startJudges(
   runId: string,
   body: StartJudgeRequest,

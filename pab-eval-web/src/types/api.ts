@@ -279,6 +279,7 @@ export interface JudgeConfig {
   model: string;
   api_key_env: string;
   temperature: number;
+  timeout_s?: number;
   max_tokens?: number | null;
   notes: string;
   created_at: string;
@@ -293,6 +294,7 @@ export interface JudgeConfigCreate {
   model: string;
   api_key_env: string;
   temperature?: number;
+  timeout_s?: number;
   max_tokens?: number | null;
   notes?: string;
 }
@@ -303,6 +305,7 @@ export interface JudgeConfigUpdate {
   model: string;
   api_key_env: string;
   temperature?: number;
+  timeout_s?: number;
   max_tokens?: number | null;
   notes?: string;
 }

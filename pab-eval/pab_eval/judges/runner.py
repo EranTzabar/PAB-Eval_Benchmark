@@ -33,6 +33,7 @@ def build_judge_client(spec: JudgeSpec) -> ModelClient:
         base_url=spec.base_url,
         api_key=api_key,
         model=spec.model,
+        timeout_s=float(spec.timeout_s),
     )
 
 

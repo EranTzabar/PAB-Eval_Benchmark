@@ -12,7 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from pab_eval.api.deps import get_state
 from pab_eval.api.models import DecisionRequest, RenameRunRequest, StartJudgeRequest, StartRunRequest
-from pab_eval.api.stores import delete_run, get_config
+from pab_eval.api.stores import delete_judge_run, delete_run, get_config
 from pab_eval.config import build_client, resolve_persona
 from pab_eval.dataset import default_dataset_paths, load_dataset
 from pab_eval.errors import ConfigError, JobAlreadyRunningError, RunConflictError
@@ -565,6 +565,36 @@ def judge_decision(run_id: str, judge_run_id: str, body: DecisionRequest):
 def cancel_judge(run_id: str, judge_run_id: str):
     get_state().jobs.cancel(f"judge:{run_id}:{judge_run_id}")
     return {"ok": True}
+
+
+@router.delete("/{run_id}/judges/{judge_run_id}", status_code=204)
+def delete_judge_run_endpoint(run_id: str, judge_run_id: str):
+    state = get_state()
+    job_id = f"judge:{run_id}:{judge_run_id}"
+    job = state.jobs.get(job_id)
+    prefix = keys.judge_run_prefix(run_id, judge_run_id)
+    has_storage = bool(state.store.list_keys(prefix))
+
+    if not has_storage and job is None:
+        raise HTTPException(status_code=404, detail="judge run not found")
+
+    if job and job.state in _ACTIVE_JOB_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail="cannot delete while judge run is active; cancel it first",
+        )
+
+    if has_storage:
+        try:
+            delete_judge_run(state.store, run_id, judge_run_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="judge run not found") from None
+
+    if job is not None:
+        try:
+            state.jobs.drop(job_id)
+        except JobAlreadyRunningError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{run_id}/judges/{judge_run_id}/scores")

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { listAllJudgeRuns } from "@/lib/api";
+import { deleteJudgeRun, listAllJudgeRuns } from "@/lib/api";
 import { isTrackableJobState } from "@/lib/runs";
 import type { JobState, JudgeRunListItem, Progress } from "@/types/api";
 
@@ -50,6 +50,7 @@ export function JudgeRunsList() {
   const [runs, setRuns] = useState<JudgeRunListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,6 +70,36 @@ export function JudgeRunsList() {
     const id = setInterval(() => void load(), 5000);
     return () => clearInterval(id);
   }, [load]);
+
+  const handleDelete = async (item: JudgeRunListItem) => {
+    const state = displayState(item);
+    if (state === "running" || state === "awaiting_decision") {
+      setError("Cancel the judge run before deleting it.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete judge run "${item.judge_run_id}" on generate run "${item.run_id}"? All scores and checkpoints for this judge run will be removed.`,
+      )
+    ) {
+      return;
+    }
+    const key = `${item.run_id}:${item.judge_run_id}`;
+    setDeletingKey(key);
+    setError(null);
+    try {
+      await deleteJudgeRun(item.run_id, item.judge_run_id);
+      setRuns((prev) =>
+        prev.filter(
+          (r) => !(r.run_id === item.run_id && r.judge_run_id === item.judge_run_id),
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete judge run");
+    } finally {
+      setDeletingKey(null);
+    }
+  };
 
   if (loading && runs.length === 0) {
     return <p className="text-sm text-zinc-500">Loading judge runs…</p>;
@@ -129,9 +160,11 @@ export function JudgeRunsList() {
               const started = item.manifest?.started_at ?? item.job?.started_at;
               const trackable = item.job ? isTrackableJobState(item.job.state) : false;
               const trackHref = `/judges/activate?trackRun=${encodeURIComponent(item.run_id)}&trackJudge=${encodeURIComponent(item.judge_run_id)}`;
+              const rowKey = `${item.run_id}:${item.judge_run_id}`;
+              const canDelete = state !== "running" && state !== "awaiting_decision";
 
               return (
-                <tr key={`${item.run_id}:${item.judge_run_id}`} className="bg-white dark:bg-zinc-950">
+                <tr key={rowKey} className="bg-white dark:bg-zinc-950">
                   <td className="px-4 py-3 font-mono text-xs">{item.run_id}</td>
                   <td className="px-4 py-3 font-mono text-xs">{item.judge_run_id}</td>
                   <td className="px-4 py-3 font-mono text-xs">{judgeId}</td>
@@ -152,16 +185,31 @@ export function JudgeRunsList() {
                     {started ? new Date(started).toLocaleString() : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <Link
-                      href={trackHref}
-                      className={`text-xs font-medium underline ${
-                        trackable
-                          ? "text-sky-700 dark:text-sky-300"
-                          : "text-zinc-600 dark:text-zinc-400"
-                      }`}
-                    >
-                      {trackable ? "Track" : "View"}
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={trackHref}
+                        className={`text-xs font-medium underline ${
+                          trackable
+                            ? "text-sky-700 dark:text-sky-300"
+                            : "text-zinc-600 dark:text-zinc-400"
+                        }`}
+                      >
+                        {trackable ? "Track" : "View"}
+                      </Link>
+                      <button
+                        type="button"
+                        className="text-xs text-red-600 underline disabled:opacity-40 dark:text-red-400"
+                        disabled={!canDelete || deletingKey === rowKey}
+                        title={
+                          canDelete
+                            ? undefined
+                            : "Cancel the judge run before deleting"
+                        }
+                        onClick={() => void handleDelete(item)}
+                      >
+                        {deletingKey === rowKey ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

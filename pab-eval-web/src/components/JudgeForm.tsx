@@ -21,6 +21,7 @@ function buildBody(
   model: string,
   apiKeyEnv: string,
   temperature: number,
+  timeoutS: number,
   maxTokens: string,
   notes: string,
 ): JudgeConfigUpdate {
@@ -31,6 +32,7 @@ function buildBody(
     model: model.trim(),
     api_key_env: apiKeyEnv.trim(),
     temperature,
+    timeout_s: timeoutS,
     max_tokens: trimmedMax ? Number(trimmedMax) : null,
     notes: notes.trim(),
   };
@@ -43,6 +45,7 @@ function validateForm(
   baseUrl: string,
   model: string,
   apiKeyEnv: string,
+  timeoutS: number,
   maxTokens: string,
 ): string | null {
   if (!isEdit && !JUDGE_ID_PATTERN.test(judgeId.trim())) {
@@ -57,6 +60,9 @@ function validateForm(
   if (maxTokens.trim() && Number.isNaN(Number(maxTokens))) {
     return "Max tokens must be a number";
   }
+  if (!Number.isFinite(timeoutS) || timeoutS < 1) {
+    return "Timeout must be at least 1 second";
+  }
   return null;
 }
 
@@ -68,6 +74,7 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
   const [model, setModel] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_JUDGE_KEY");
   const [temperature, setTemperature] = useState(0);
+  const [timeoutS, setTimeoutS] = useState(120);
   const [maxTokens, setMaxTokens] = useState("");
   const [notes, setNotes] = useState("");
   const [envVars, setEnvVars] = useState<Record<string, boolean>>({});
@@ -96,6 +103,7 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
         setModel(cfg.model);
         setApiKeyEnv(cfg.api_key_env);
         setTemperature(cfg.temperature ?? 0);
+        setTimeoutS(cfg.timeout_s ?? 120);
         setMaxTokens(cfg.max_tokens != null ? String(cfg.max_tokens) : "");
         setNotes(cfg.notes ?? "");
       })
@@ -109,7 +117,16 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validationError = validateForm(isEdit, idDraft, name, baseUrl, model, apiKeyEnv, maxTokens);
+    const validationError = validateForm(
+      isEdit,
+      idDraft,
+      name,
+      baseUrl,
+      model,
+      apiKeyEnv,
+      timeoutS,
+      maxTokens,
+    );
     if (validationError) {
       setError(validationError);
       return;
@@ -118,7 +135,7 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
     setSubmitting(true);
     setError(null);
     try {
-      const body = buildBody(name, baseUrl, model, apiKeyEnv, temperature, maxTokens, notes);
+      const body = buildBody(name, baseUrl, model, apiKeyEnv, temperature, timeoutS, maxTokens, notes);
       const config = isEdit
         ? await updateJudge(judgeId!, body)
         : await createJudge({ judge_id: idDraft.trim(), ...body } as JudgeConfigCreate);
@@ -235,7 +252,7 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
         ) : null}
       </label>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <label className="block space-y-1">
           <span className="text-sm font-medium">Temperature</span>
           <input
@@ -246,6 +263,17 @@ export function JudgeForm({ judgeId, returnTo = "/judges" }: JudgeFormProps) {
             className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
             value={temperature}
             onChange={(e) => setTemperature(Number(e.target.value))}
+            disabled={submitting}
+          />
+        </label>
+        <label className="block space-y-1">
+          <span className="text-sm font-medium">Timeout (s)</span>
+          <input
+            type="number"
+            min="1"
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+            value={timeoutS}
+            onChange={(e) => setTimeoutS(Number(e.target.value))}
             disabled={submitting}
           />
         </label>

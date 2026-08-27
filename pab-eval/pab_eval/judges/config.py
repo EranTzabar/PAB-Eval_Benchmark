@@ -19,6 +19,7 @@ class JudgeSpec(BaseModel):
     model: str
     api_key_env: str
     temperature: float = 0.0
+    timeout_s: int = 120
     max_tokens: int | None = None
     notes: str = ""
 
@@ -32,6 +33,7 @@ class JudgeConfigCreate(BaseModel):
     model: str
     api_key_env: str
     temperature: float = 0.0
+    timeout_s: int = 120
     max_tokens: int | None = None
     notes: str = ""
 
@@ -51,6 +53,7 @@ class JudgeConfigUpdate(BaseModel):
     model: str
     api_key_env: str
     temperature: float = 0.0
+    timeout_s: int = 120
     max_tokens: int | None = None
     notes: str = ""
 
@@ -71,6 +74,7 @@ class JudgeConfig(BaseModel):
     model: str
     api_key_env: str
     temperature: float = 0.0
+    timeout_s: int = 120
     max_tokens: int | None = None
     notes: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -83,6 +87,7 @@ class JudgeConfig(BaseModel):
             model=self.model,
             api_key_env=self.api_key_env,
             temperature=self.temperature,
+            timeout_s=self.timeout_s,
             max_tokens=self.max_tokens,
             notes=self.notes,
         )

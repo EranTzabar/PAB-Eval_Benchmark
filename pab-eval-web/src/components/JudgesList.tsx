@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { listJudges } from "@/lib/api";
+import { deleteJudge, listJudges } from "@/lib/api";
 import type { JudgeConfig } from "@/types/api";
 
 export function JudgesList() {
   const [judges, setJudges] = useState<JudgeConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingJudgeId, setDeletingJudgeId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,6 +27,26 @@ export function JudgesList() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleDelete = async (judge: JudgeConfig) => {
+    if (
+      !window.confirm(
+        `Delete judge "${judge.name}" (${judge.judge_id})? This removes the judge definition only; past judge runs and scores are kept.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingJudgeId(judge.judge_id);
+    setError(null);
+    try {
+      await deleteJudge(judge.judge_id);
+      setJudges((prev) => prev.filter((j) => j.judge_id !== judge.judge_id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete judge");
+    } finally {
+      setDeletingJudgeId(null);
+    }
+  };
 
   if (loading) {
     return <p className="text-sm text-zinc-500">Loading judges…</p>;
@@ -95,12 +116,22 @@ export function JudgesList() {
                   {new Date(judge.updated_at).toLocaleString()}
                 </td>
                 <td className="px-4 py-3">
-                  <Link
-                    href={`/judges/${encodeURIComponent(judge.judge_id)}/edit?return=${encodeURIComponent("/judges")}`}
-                    className="text-xs underline"
-                  >
-                    Edit
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/judges/${encodeURIComponent(judge.judge_id)}/edit?return=${encodeURIComponent("/judges")}`}
+                      className="text-xs underline"
+                    >
+                      Edit
+                    </Link>
+                    <button
+                      type="button"
+                      className="text-xs text-red-600 underline disabled:opacity-40 dark:text-red-400"
+                      disabled={deletingJudgeId === judge.judge_id}
+                      onClick={() => void handleDelete(judge)}
+                    >
+                      {deletingJudgeId === judge.judge_id ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

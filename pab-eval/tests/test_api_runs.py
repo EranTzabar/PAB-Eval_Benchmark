@@ -133,6 +133,61 @@ def test_list_all_judge_runs(client):
     assert body[0]["progress"]["completed"] == 1
 
 
+def test_delete_judge_run_removes_storage(client):
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    started = "2026-03-19T12:00:00+00:00"
+    state.store.put_json(
+        keys.run_manifest("r1"),
+        {
+            "run_id": "r1",
+            "config_id": "c1",
+            "persona_mode": "endpoint",
+            "target_base_url": "u",
+            "target_model": "m",
+            "temperature": 0.7,
+            "started_at": started,
+        },
+    )
+    state.store.put_json(
+        keys.judge_manifest("r1", "gpt5_judge"),
+        {
+            "run_id": "r1",
+            "judge_run_id": "gpt5_judge",
+            "judge_id": "gpt5_judge",
+            "judge_model": "gpt-4o",
+            "base_url": "https://example.com",
+            "temperature": 0.0,
+            "prompt_version": "1.2.0",
+            "started_at": started,
+            "notes": "",
+        },
+    )
+    state.store.put_json(
+        keys.score("r1", "gpt5_judge", "DIR_001"),
+        {
+            "item_id": "DIR_001",
+            "run_id": "r1",
+            "judge_run_id": "gpt5_judge",
+            "aid": 0,
+            "ltf": 4,
+            "ebc": 5,
+            "parse_ok": True,
+        },
+    )
+
+    assert client.delete("/runs/r1/judges/gpt5_judge").status_code == 204
+    assert state.store.list_keys(keys.judge_run_prefix("r1", "gpt5_judge")) == []
+    assert client.get("/runs/r1/judges/gpt5_judge").status_code == 404
+    assert client.get("/runs/r1").status_code == 200
+
+
+def test_delete_judge_run_not_found(client):
+    assert client.delete("/runs/r1/judges/missing").status_code == 404
+
+
 def test_list_runs_returns_run_id_from_manifest_key(client):
     from pab_eval.api.deps import get_state
 

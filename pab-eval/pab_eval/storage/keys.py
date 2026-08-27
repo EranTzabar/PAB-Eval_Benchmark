@@ -53,6 +53,11 @@ def judges_prefix(run_id: str) -> str:
     return f"{_run(run_id)}/judges/"
 
 
+def judge_run_prefix(run_id: str, judge_run_id: str) -> str:
+    validate_id(judge_run_id, "judge_run_id")
+    return f"{_run(run_id)}/judges/{judge_run_id}/"
+
+
 def generate_checkpoint(run_id: str) -> str:
     return f"{_run(run_id)}/checkpoint.json"
 

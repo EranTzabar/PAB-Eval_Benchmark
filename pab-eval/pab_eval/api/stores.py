@@ -103,6 +103,7 @@ def create_judge(store: ObjectStore, body: JudgeConfigCreate) -> JudgeConfig:
         model=body.model,
         api_key_env=body.api_key_env,
         temperature=body.temperature,
+        timeout_s=body.timeout_s,
         max_tokens=body.max_tokens,
         notes=body.notes,
         created_at=now,
@@ -121,6 +122,7 @@ def update_judge(store: ObjectStore, judge_id: str, body: JudgeConfigUpdate) -> 
             "model": body.model,
             "api_key_env": body.api_key_env,
             "temperature": body.temperature,
+            "timeout_s": body.timeout_s,
             "max_tokens": body.max_tokens,
             "notes": body.notes,
             "updated_at": datetime.now(timezone.utc),
@@ -341,4 +343,11 @@ def delete_run(store: ObjectStore, run_id: str) -> int:
     prefix = keys.run_data_prefix(run_id)
     if not store.list_keys(prefix):
         raise KeyError(run_id)
+    return store.delete_prefix(prefix)
+
+
+def delete_judge_run(store: ObjectStore, run_id: str, judge_run_id: str) -> int:
+    prefix = keys.judge_run_prefix(run_id, judge_run_id)
+    if not store.list_keys(prefix):
+        raise KeyError((run_id, judge_run_id))
     return store.delete_prefix(prefix)

@@ -54,11 +54,18 @@ def test_update_judge(client):
             "model": "gpt-4o-mini",
             "api_key_env": "OPENAI_JUDGE_KEY",
             "temperature": 0.1,
+            "timeout_s": 300,
             "notes": "",
         },
     )
     assert r.status_code == 200
     assert r.json()["model"] == "gpt-4o-mini"
+    assert r.json()["timeout_s"] == 300
+
+
+def test_judge_timeout_defaults_to_120(client):
+    client.post("/judges", json=_judge_body())
+    assert client.get("/judges/gpt4o_judge").json()["timeout_s"] == 120
 
 
 def test_delete_judge(client):
