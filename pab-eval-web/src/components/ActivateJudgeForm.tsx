@@ -329,6 +329,53 @@ function jobFromJudgeRunDetail(
   };
 }
 
+function activeRunsFromJobs(
+  runId: string,
+  judgeIds: string[],
+  jobs: Job[],
+  onFailure: OnFailure,
+): ActiveJudgeRun[] {
+  return jobs.map((job, i) => {
+    const judgeId = judgeIds[i] ?? "";
+    const judgeRunId = job.judge_run_id ?? judgeIds[i] ?? job.job_id;
+    return {
+      runId,
+      judgeRunId,
+      judgeId,
+      job,
+      resumeParams: {
+        judge_ids: [judgeId],
+        on_failure: onFailure,
+      },
+    };
+  });
+}
+
+async function attachExistingJudgeRuns(
+  runId: string,
+  judgeIds: string[],
+  onFailure: OnFailure,
+): Promise<ActiveJudgeRun[]> {
+  const attached: ActiveJudgeRun[] = [];
+  for (const judgeId of judgeIds) {
+    const judgeRunId = judgeId;
+    try {
+      const detail = await getJudgeRun(runId, judgeRunId);
+      if (!detail.manifest && !detail.job) continue;
+      attached.push({
+        runId,
+        judgeRunId,
+        judgeId,
+        job: jobFromJudgeRunDetail(detail, runId, judgeRunId),
+        resumeParams: { judge_ids: [judgeId], on_failure: onFailure },
+      });
+    } catch {
+      // no stored run for this judge id
+    }
+  }
+  return attached;
+}
+
 export function ActivateJudgeForm() {
   const searchParams = useSearchParams();
   const trackRun = searchParams.get("trackRun");
@@ -460,18 +507,17 @@ export function ActivateJudgeForm() {
     };
     try {
       const jobs = await startJudges(runId, resumeParams);
-      setActiveRuns(
-        jobs.map((job, i) => ({
-          runId,
-          judgeRunId: job.judge_run_id ?? selectedJudgeIds[i] ?? job.job_id,
-          judgeId: selectedJudgeIds[i] ?? "",
-          job,
-          resumeParams: {
-            judge_ids: [selectedJudgeIds[i] ?? ""],
-            on_failure: onFailure,
-          },
-        })),
-      );
+      let runs = activeRunsFromJobs(runId, selectedJudgeIds, jobs, onFailure);
+      if (runs.length === 0) {
+        runs = await attachExistingJudgeRuns(runId, selectedJudgeIds, onFailure);
+      }
+      if (runs.length === 0) {
+        setError(
+          "Could not start or find a judge run. Confirm the generate run has responses and the judge API key is set.",
+        );
+        return;
+      }
+      setActiveRuns(runs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start judge run");
     } finally {

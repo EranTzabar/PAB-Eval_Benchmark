@@ -22,6 +22,12 @@ export default function JudgesPage() {
         >
           Add judge
         </Link>
+        <Link
+          href="/judges/metrics"
+          className="mt-2 ml-4 inline-block text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400"
+        >
+          Judge metrics
+        </Link>
       </header>
 
       <section className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">

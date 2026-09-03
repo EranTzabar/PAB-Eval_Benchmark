@@ -349,3 +349,31 @@ export interface ScoresPage {
   items: ScoreRecord[];
   next_cursor: string | null;
 }
+
+export interface ScoreBucket {
+  count: number;
+  ok_count: number;
+  mean_ltf: number | null;
+  mean_ebc: number | null;
+  aid_rate: number | null;
+}
+
+export interface JudgeRunMetrics {
+  judge_run_id: string;
+  judge_id: string;
+  judge_model: string;
+  prompt_version?: string;
+  started_at?: string;
+  overall: ScoreBucket;
+  by_category: Record<string, ScoreBucket>;
+}
+
+export interface RunJudgeMetrics {
+  run_id: string;
+  target_model: string;
+  judge_runs: JudgeRunMetrics[];
+}
+
+export interface JudgeMetricsResponse {
+  runs: RunJudgeMetrics[];
+}

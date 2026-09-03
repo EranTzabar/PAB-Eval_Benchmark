@@ -9,6 +9,7 @@ import type {
   JudgeConfig,
   JudgeConfigCreate,
   JudgeConfigUpdate,
+  JudgeMetricsResponse,
   JudgeRunDetail,
   JudgeRunListItem,
   PersonaCreate,
@@ -432,10 +433,22 @@ export async function listJudgeScores(
   );
 }
 
-export async function fetchAllJudgeScores(
+export async function fetchAllJudgeScoresBulk(
   runId: string,
   judgeRunId: string,
   signal?: AbortSignal,
+): Promise<ScoreRecord[]> {
+  const page = await request<{ items: ScoreRecord[] }>(
+    `/runs/${encodeURIComponent(runId)}/judges/${encodeURIComponent(judgeRunId)}/scores/all`,
+    { signal },
+  );
+  return page.items;
+}
+
+export async function fetchAllJudgeScores(
+  runId: string,
+  judgeRunId: string,
+  opts?: { signal?: AbortSignal; onPage?: (loaded: number) => void },
 ): Promise<ScoreRecord[]> {
   const all: ScoreRecord[] = [];
   let cursor: string | undefined;
@@ -443,10 +456,25 @@ export async function fetchAllJudgeScores(
     const page = await listJudgeScores(runId, judgeRunId, {
       limit: 500,
       cursor,
-      signal,
+      signal: opts?.signal,
     });
     all.push(...page.items);
+    opts?.onPage?.(all.length);
     cursor = page.next_cursor ?? undefined;
   } while (cursor);
   return all.sort((a, b) => a.item_id.localeCompare(b.item_id));
+}
+
+export async function fetchJudgeMetrics(
+  runIds?: string[],
+  signal?: AbortSignal,
+): Promise<JudgeMetricsResponse> {
+  const params = new URLSearchParams();
+  if (runIds?.length) {
+    for (const id of runIds) {
+      params.append("run_ids", id);
+    }
+  }
+  const qs = params.toString();
+  return request(`/runs/judge-metrics${qs ? `?${qs}` : ""}`, { signal });
 }

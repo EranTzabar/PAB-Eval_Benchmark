@@ -1,4 +1,12 @@
-const ALLOWED_RETURN_PATHS = new Set(["/", "/runs", "/configs", "/judges", "/judges/activate", "/dataset"]);
+const ALLOWED_RETURN_PATHS = new Set([
+  "/",
+  "/runs",
+  "/configs",
+  "/judges",
+  "/judges/activate",
+  "/judges/metrics",
+  "/dataset",
+]);
 
 export function safeReturnPath(value: string | null | undefined, fallback = "/judges"): string {
   if (value && ALLOWED_RETURN_PATHS.has(value)) {
@@ -17,6 +25,8 @@ export function returnPathLabel(path: string): string {
       return "Back to judges";
     case "/judges/activate":
       return "Back to run judge";
+    case "/judges/metrics":
+      return "Back to judge metrics";
     case "/dataset":
       return "Back to dataset";
     default:

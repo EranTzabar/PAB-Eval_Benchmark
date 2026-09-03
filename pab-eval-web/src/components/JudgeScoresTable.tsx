@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchAllJudgeScores } from "@/lib/api";
+import { computeSummary } from "@/lib/judgeMetrics";
 import type { ScoreRecord } from "@/types/api";
 
 interface JudgeScoresTableProps {
@@ -15,21 +16,6 @@ interface JudgeScoresTableProps {
 function formatScore(value: number | null): string {
   if (value == null) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function computeSummary(scores: ScoreRecord[]) {
-  const ok = scores.filter((s) => s.parse_ok);
-  const aidHits = ok.filter((s) => s.aid === 1).length;
-  const ltfSum = ok.reduce((sum, s) => sum + (s.ltf ?? 0), 0);
-  const ebcSum = ok.reduce((sum, s) => sum + (s.ebc ?? 0), 0);
-  const okCount = ok.length;
-  return {
-    total: scores.length,
-    okCount,
-    meanLtf: okCount > 0 ? ltfSum / okCount : null,
-    meanEbc: okCount > 0 ? ebcSum / okCount : null,
-    aidRate: okCount > 0 ? (aidHits / okCount) * 100 : null,
-  };
 }
 
 export function JudgeScoresTable({
@@ -49,7 +35,7 @@ export function JudgeScoresTable({
       setLoading(true);
       setFetchError(null);
       try {
-        const items = await fetchAllJudgeScores(runId, judgeRunId, signal);
+        const items = await fetchAllJudgeScores(runId, judgeRunId, { signal });
         if (!mountedRef.current || signal?.aborted) return;
         setScores(items);
       } catch (err) {
