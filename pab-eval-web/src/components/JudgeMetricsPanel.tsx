@@ -13,7 +13,15 @@ import {
   pairKey,
   parsePairKey,
 } from "@/lib/judgeMetrics";
-import { metricsFromExportEntries } from "@/lib/judgeMetricsFromExport";
+import {
+  categoryCompositeScore,
+  COMPOSITE_FORMULA_CATEGORY,
+  COMPOSITE_FORMULA_ITEM,
+  findExportEntry,
+  formatCompositeScore,
+  metricsFromExportEntries,
+  overallCompositeScore,
+} from "@/lib/judgeMetricsFromExport";
 import { importJudgeRunsFromFiles, mergeExportEntries } from "@/lib/judgeRunsImport";
 import type { JudgeRunExportEntry } from "@/lib/judgeRunsExport";
 import { SCORE_DEFINITIONS } from "@/lib/scoreDefinitions";
@@ -108,6 +116,64 @@ function MetricsTable({ rowKeys, rowLabel, columns, getBucket }: MetricsTablePro
                   <td key={col.id} className="px-3 py-2 font-mono text-xs">
                     <span title={`Scored: ${formatScored(bucket)}`}>
                       {formatMetricCell(bucket)}
+                    </span>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface CompositeTableProps {
+  rowKeys: string[];
+  rowLabel: (key: string) => string;
+  columns: { id: string; label: string; subLabel?: string; judgeRun: JudgeRunMetrics }[];
+  getComposite: (columnId: string, rowKey: string) => number | null;
+}
+
+function CompositeTable({ rowKeys, rowLabel, columns, getComposite }: CompositeTableProps) {
+  if (columns.length === 0) {
+    return <p className="text-sm text-zinc-500">No columns to compare.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+      <table className="w-full min-w-[640px] text-left text-sm">
+        <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+          <tr>
+            <th className="px-3 py-2 font-medium">Category</th>
+            {columns.map((col) => (
+              <th key={col.id} className="px-3 py-2 font-medium">
+                <div>{col.label}</div>
+                {col.subLabel ? (
+                  <div className="font-normal text-xs text-zinc-500">{col.subLabel}</div>
+                ) : null}
+              </th>
+            ))}
+          </tr>
+          <tr className="border-b border-zinc-200 text-xs font-normal text-zinc-500 dark:border-zinc-700">
+            <th className="px-3 py-1.5" />
+            {columns.map((col) => (
+              <th key={col.id} className="px-3 py-1.5 font-normal">
+                Composite score
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-700">
+          {rowKeys.map((rowKey) => (
+            <tr key={rowKey} className="bg-white dark:bg-zinc-950">
+              <td className="px-3 py-2 font-medium">{rowLabel(rowKey)}</td>
+              {columns.map((col) => {
+                const bucket = bucketForRow(col.judgeRun, rowKey);
+                return (
+                  <td key={col.id} className="px-3 py-2 font-mono text-xs">
+                    <span title={`Scored: ${formatScored(bucket)}`}>
+                      {formatCompositeScore(getComposite(col.id, rowKey))}
                     </span>
                   </td>
                 );
@@ -407,7 +473,14 @@ export function JudgeMetricsPanel() {
                   ))}
                 </select>
               </label>
-              <MetricsTable
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                <p>{COMPOSITE_FORMULA_ITEM}</p>
+                <p>{COMPOSITE_FORMULA_CATEGORY}</p>
+                <p className="mt-1 font-sans text-zinc-500">
+                  AID = 1 gives t(i) = 0; unparsed items count as 0. Shown as a percentage.
+                </p>
+              </div>
+              <CompositeTable
                 rowKeys={rowKeys}
                 rowLabel={rowLabel}
                 columns={crossIdRuns.map(({ run, judgeRun }) => ({
@@ -416,18 +489,14 @@ export function JudgeMetricsPanel() {
                   subLabel: `${run.target_model} · ${judgeRun.judge_run_id}`,
                   judgeRun,
                 }))}
-                getBucket={(columnId, rowKey) => {
-                  const entry = crossIdRuns.find((e) => e.run.run_id === columnId);
-                  if (!entry) {
-                    return {
-                      count: 0,
-                      ok_count: 0,
-                      mean_ltf: null,
-                      mean_ebc: null,
-                      aid_rate: null,
-                    };
-                  }
-                  return bucketForRow(entry.judgeRun, rowKey);
+                getComposite={(columnId, rowKey) => {
+                  const column = crossIdRuns.find((e) => e.run.run_id === columnId);
+                  if (!column) return null;
+                  const entry = findExportEntry(entries, columnId, column.judgeRun.judge_run_id);
+                  if (!entry) return null;
+                  return rowKey === "__overall__"
+                    ? overallCompositeScore(entry.scores)
+                    : categoryCompositeScore(entry.scores, rowKey);
                 }}
               />
             </div>

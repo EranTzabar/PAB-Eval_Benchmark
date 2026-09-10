@@ -23,6 +23,10 @@ class ObjectStore(Protocol):
 
     def list_keys(self, prefix: str) -> list[str]: ...
 
+    def list_keys_page(
+        self, prefix: str, *, limit: int, start_after: str | None = None
+    ) -> tuple[list[str], bool]: ...
+
 
 class InMemoryStore:
     def __init__(self) -> None:
@@ -64,3 +68,12 @@ class InMemoryStore:
     def list_keys(self, prefix: str) -> list[str]:
         keys = set(self._json) | set(self._text)
         return sorted(k for k in keys if k.startswith(prefix))
+
+    def list_keys_page(
+        self, prefix: str, *, limit: int, start_after: str | None = None
+    ) -> tuple[list[str], bool]:
+        keys = self.list_keys(prefix)
+        if start_after:
+            keys = [k for k in keys if k > start_after]
+        page = keys[:limit]
+        return page, len(keys) > limit

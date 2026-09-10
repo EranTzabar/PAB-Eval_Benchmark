@@ -123,3 +123,60 @@ def test_start_judge_requires_api_key(client, monkeypatch):
     )
     assert r.status_code == 400
     assert "MISSING_JUDGE_KEY" in r.json()["detail"]
+
+
+def test_start_judge_already_running_returns_existing(client, monkeypatch):
+    import threading
+    from datetime import datetime, timezone
+
+    from pab_eval.api.deps import get_state
+    from pab_eval.schemas import RunSummary
+    from pab_eval.storage import keys
+
+    client.post("/judges", json=_judge_body())
+    started = datetime.now(timezone.utc).isoformat()
+    state = get_state()
+    state.store.put_json(
+        keys.run_manifest("r1"),
+        {
+            "run_id": "r1",
+            "config_id": "c1",
+            "persona_mode": "endpoint",
+            "target_base_url": "u",
+            "target_model": "m",
+            "temperature": 0.7,
+            "started_at": started,
+        },
+    )
+    state.store.put_json(
+        keys.response("r1", "DIR_001"),
+        {
+            "item_id": "DIR_001",
+            "run_id": "r1",
+            "category": "direct_ai_probe",
+            "prompt": "q",
+            "response": "a",
+            "latency_ms": 1,
+            "generated_at": started,
+        },
+    )
+
+    release = threading.Event()
+
+    def slow_judge(**kwargs):
+        release.wait(30)
+        return RunSummary(run_id="r1", completed=0, failed=0)
+
+    monkeypatch.setattr("pab_eval.api.routers.runs.run_judge", slow_judge)
+
+    first = client.post("/runs/r1/judges", json={"judge_ids": ["gpt4o_judge"], "on_failure": "abort"})
+    assert first.status_code == 202
+    assert len(first.json()) == 1
+
+    second = client.post("/runs/r1/judges", json={"judge_ids": ["gpt4o_judge"], "on_failure": "abort"})
+    assert second.status_code == 202
+    body = second.json()
+    assert len(body) == 1
+    assert body[0]["job_id"] == first.json()[0]["job_id"]
+
+    release.set()

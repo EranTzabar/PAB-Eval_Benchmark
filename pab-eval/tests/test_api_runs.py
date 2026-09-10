@@ -133,6 +133,82 @@ def test_list_all_judge_runs(client):
     assert body[0]["progress"]["completed"] == 1
 
 
+def test_list_judge_scores_paginates(client):
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    for idx in range(3):
+        item_id = f"DIR_{idx:03d}"
+        state.store.put_json(
+            keys.score("r1", "gpt5_judge", item_id),
+            {
+                "item_id": item_id,
+                "run_id": "r1",
+                "judge_run_id": "gpt5_judge",
+                "aid": 0,
+                "ltf": 4,
+                "ebc": 5,
+                "parse_ok": True,
+            },
+        )
+
+    page1 = client.get("/runs/r1/judges/gpt5_judge/scores", params={"limit": 2})
+    assert page1.status_code == 200
+    body1 = page1.json()
+    assert len(body1["items"]) == 2
+    assert body1["next_cursor"] == "DIR_001"
+
+    page2 = client.get(
+        "/runs/r1/judges/gpt5_judge/scores",
+        params={"limit": 2, "cursor": body1["next_cursor"]},
+    )
+    body2 = page2.json()
+    assert len(body2["items"]) == 1
+    assert body2["next_cursor"] is None
+
+
+def test_export_all_judge_scores(client):
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    state.store.put_json(
+        keys.judge_manifest("r1", "gpt5_judge"),
+        {
+            "run_id": "r1",
+            "judge_run_id": "gpt5_judge",
+            "judge_id": "gpt5_judge",
+            "judge_model": "gpt-4o",
+            "base_url": "https://example.com",
+            "temperature": 0.0,
+            "prompt_version": "1.2.0",
+            "started_at": "2026-03-19T12:00:00+00:00",
+            "notes": "",
+        },
+    )
+    for idx in range(3):
+        item_id = f"DIR_{idx:03d}"
+        state.store.put_json(
+            keys.score("r1", "gpt5_judge", item_id),
+            {
+                "item_id": item_id,
+                "run_id": "r1",
+                "judge_run_id": "gpt5_judge",
+                "aid": 0,
+                "ltf": 4,
+                "ebc": 5,
+                "parse_ok": True,
+            },
+        )
+
+    r = client.get("/runs/r1/judges/gpt5_judge/scores/all")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert len(items) == 3
+    assert [item["item_id"] for item in items] == ["DIR_000", "DIR_001", "DIR_002"]
+
+
 def test_delete_judge_run_removes_storage(client):
     from pab_eval.api.deps import get_state
     from pab_eval.storage import keys
@@ -182,6 +258,58 @@ def test_delete_judge_run_removes_storage(client):
     assert state.store.list_keys(keys.judge_run_prefix("r1", "gpt5_judge")) == []
     assert client.get("/runs/r1/judges/gpt5_judge").status_code == 404
     assert client.get("/runs/r1").status_code == 200
+    assert client.get("/runs/judge-runs").status_code == 200
+
+
+def test_list_all_judge_runs_skips_stale_manifest_keys(client):
+    from pab_eval.api.deps import get_state
+    from pab_eval.storage import keys
+
+    state = get_state()
+    started = "2026-03-19T12:00:00+00:00"
+    state.store.put_json(
+        keys.run_manifest("r1"),
+        {
+            "run_id": "r1",
+            "config_id": "c1",
+            "persona_mode": "endpoint",
+            "target_base_url": "u",
+            "target_model": "m",
+            "temperature": 0.7,
+            "started_at": started,
+        },
+    )
+    state.store.put_json(
+        keys.judge_manifest("r1", "gpt5_judge"),
+        {
+            "run_id": "r1",
+            "judge_run_id": "gpt5_judge",
+            "judge_id": "gpt5_judge",
+            "judge_model": "gpt-4o",
+            "base_url": "https://example.com",
+            "temperature": 0.0,
+            "prompt_version": "1.2.0",
+            "started_at": started,
+            "notes": "",
+        },
+    )
+
+    stale_key = keys.judge_manifest("r1", "deleted_judge")
+    original_list_keys = state.store.list_keys
+
+    def list_keys_with_stale(prefix: str) -> list[str]:
+        keys_found = original_list_keys(prefix)
+        if prefix == keys.judges_prefix("r1"):
+            return sorted(set(keys_found) | {stale_key})
+        return keys_found
+
+    state.store.list_keys = list_keys_with_stale  # type: ignore[method-assign]
+
+    r = client.get("/runs/judge-runs")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["judge_run_id"] == "gpt5_judge"
 
 
 def test_delete_judge_run_not_found(client):

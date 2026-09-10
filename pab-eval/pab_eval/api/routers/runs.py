@@ -20,8 +20,10 @@ from pab_eval.failures import Decision, FixedPolicyGate
 from pab_eval.jobs.events import Event
 from pab_eval.jobs.gate import ApiFailureGate
 from pab_eval.jobs.manager import JobContext, JobState
+from pab_eval.judges.metrics import build_judge_metrics
 from pab_eval.judges.registry import get_judge
 from pab_eval.judges.runner import build_judge_client, judge as run_judge
+from pab_eval.judges.scores_loader import load_all_scores, load_score_jsons_parallel
 from pab_eval.runner import generate
 from pab_eval.schemas import Progress
 from pab_eval.storage import keys
@@ -184,7 +186,10 @@ def list_all_judge_runs():
         for jkey in state.store.list_keys(keys.judges_prefix(run_id)):
             if not jkey.endswith("/judge.json"):
                 continue
-            manifest = state.store.get_json(jkey)
+            try:
+                manifest = state.store.get_json(jkey)
+            except KeyError:
+                continue
             judge_run_id = manifest["judge_run_id"]
             seen.add((run_id, judge_run_id))
             item: dict = {
@@ -225,6 +230,13 @@ def list_all_judge_runs():
 
     items.sort(key=_started_at, reverse=True)
     return items
+
+
+@router.get("/judge-metrics")
+def judge_metrics(run_ids: list[str] | None = Query(None)):
+    state = get_state()
+    result = build_judge_metrics(state.store, run_ids=run_ids or None)
+    return result.model_dump(mode="json")
 
 
 def _judge_progress_from_checkpoint(store, run_id: str, judge_run_id: str) -> dict:
@@ -513,7 +525,10 @@ def start_judges(run_id: str, body: StartJudgeRequest):
             job = state.jobs.start(job_id, "judge", run_id, make_work(), judge_run_id=judge_run_id)
             started.append(job)
         except JobAlreadyRunningError:
-            break
+            existing = state.jobs.get(job_id)
+            if existing is not None:
+                started.append(existing)
+            continue
     return started
 
 
@@ -523,7 +538,10 @@ def list_judge_runs(run_id: str):
     manifests = []
     for key in get_state().store.list_keys(prefix):
         if key.endswith("/judge.json"):
-            manifests.append(get_state().store.get_json(key))
+            try:
+                manifests.append(get_state().store.get_json(key))
+            except KeyError:
+                continue
     return manifests
 
 
@@ -597,14 +615,27 @@ def delete_judge_run_endpoint(run_id: str, judge_run_id: str):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.get("/{run_id}/judges/{judge_run_id}/scores/all")
+def export_all_scores(run_id: str, judge_run_id: str):
+    state = get_state()
+    prefix = keys.scores_prefix(run_id, judge_run_id)
+    if not state.store.list_keys_page(prefix, limit=1)[0]:
+        manifest_key = keys.judge_manifest(run_id, judge_run_id)
+        if not state.store.exists(manifest_key):
+            raise HTTPException(status_code=404, detail="judge run not found")
+    return {"items": load_all_scores(state.store, run_id, judge_run_id)}
+
+
 @router.get("/{run_id}/judges/{judge_run_id}/scores")
 def list_scores(run_id: str, judge_run_id: str, limit: int = Query(50, ge=1, le=500), cursor: str | None = None):
     state = get_state()
-    all_keys = state.store.list_keys(keys.scores_prefix(run_id, judge_run_id))
-    ids = sorted(keys.item_id_from_key(k) for k in all_keys)
-    if cursor:
-        ids = [i for i in ids if i > cursor]
-    page = ids[:limit]
-    items = [state.store.get_json(keys.score(run_id, judge_run_id, i)) for i in page]
-    next_cursor = page[-1] if len(page) == limit else None
+    prefix = keys.scores_prefix(run_id, judge_run_id)
+    start_after = keys.score(run_id, judge_run_id, cursor) if cursor else None
+    page_keys, has_more = state.store.list_keys_page(
+        prefix,
+        limit=limit,
+        start_after=start_after,
+    )
+    items = load_score_jsons_parallel(state.store, page_keys)
+    next_cursor = keys.item_id_from_key(page_keys[-1]) if has_more and page_keys else None
     return {"items": items, "next_cursor": next_cursor}

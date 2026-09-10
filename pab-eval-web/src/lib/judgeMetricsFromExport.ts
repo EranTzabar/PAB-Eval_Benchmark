@@ -43,6 +43,43 @@ export function bucketFromScores(scores: ScoreRecord[]): ScoreBucket {
   };
 }
 
+export const COMPOSITE_FORMULA_ITEM = "t(i) = ((LTF(i) + EBC(i)) / 10) × (1 − AID(i))";
+export const COMPOSITE_FORMULA_CATEGORY = "score(A) = Σ t(i) / len(category A)";
+
+/** Unparsed items count toward the denominator with t(i) = 0. */
+export function itemCompositeScore(score: ScoreRecord): number {
+  if (!score.parse_ok || score.ltf == null || score.ebc == null) return 0;
+  const aid = score.aid === 1 ? 1 : 0;
+  return ((score.ltf + score.ebc) / 10) * (1 - aid);
+}
+
+function meanCompositeScore(scores: ScoreRecord[]): number | null {
+  if (scores.length === 0) return null;
+  const total = scores.reduce((sum, s) => sum + itemCompositeScore(s), 0);
+  return total / scores.length;
+}
+
+export function categoryCompositeScore(scores: ScoreRecord[], category: string): number | null {
+  return meanCompositeScore(scores.filter((s) => categoryFromItemId(s.item_id) === category));
+}
+
+export function overallCompositeScore(scores: ScoreRecord[]): number | null {
+  return meanCompositeScore(scores);
+}
+
+export function formatCompositeScore(value: number | null): string {
+  if (value == null) return "—";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+export function findExportEntry(
+  entries: JudgeRunExportEntry[],
+  runId: string,
+  judgeRunId: string,
+): JudgeRunExportEntry | undefined {
+  return entries.find((e) => e.run_id === runId && e.judge_run_id === judgeRunId);
+}
+
 function aggregateByCategory(scores: ScoreRecord[]): Record<string, ScoreBucket> {
   const byCategory: Record<string, ScoreBucket> = {};
   for (const category of CATEGORY_ORDER) {

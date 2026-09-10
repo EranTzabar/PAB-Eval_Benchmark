@@ -126,3 +126,13 @@ class R2Store:
                 break
             token = resp.get("NextContinuationToken")
         return sorted(keys)
+
+    def list_keys_page(
+        self, prefix: str, *, limit: int, start_after: str | None = None
+    ) -> tuple[list[str], bool]:
+        kwargs: dict = {"Bucket": self._bucket, "Prefix": prefix, "MaxKeys": limit}
+        if start_after:
+            kwargs["StartAfter"] = start_after
+        resp = self._client.list_objects_v2(**kwargs)
+        page = [o["Key"] for o in resp.get("Contents", [])]
+        return page, bool(resp.get("IsTruncated"))
