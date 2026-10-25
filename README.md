@@ -139,3 +139,11 @@ runs/{run_id}/...
 
 - Backend details: [`pab-eval/README.md`](pab-eval/README.md)
 - Benchmark spec: [`PAB_Eval_Benchmark.md`](PAB_Eval_Benchmark.md)
+
+## Contributing
+
+Questions and ideas go to [Discussions](https://github.com/EranTzabar/PAB-Eval_Benchmark/discussions). Bugs go to [Issues](https://github.com/EranTzabar/PAB-Eval_Benchmark/issues/new/choose). See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 def create_app(store: ObjectStore | None = None, job_manager: JobManager | None = None) -> FastAPI:
     app = FastAPI(title="PAB-Eval", lifespan=lifespan if store is None else None)
 
-    origins = os.environ.get("PAB_CORS_ORIGINS", "http://localhost:3000").split(",")
+    origins = os.environ.get("PAB_CORS_ORIGINS", "http://localhost:3005").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in origins if o.strip()],

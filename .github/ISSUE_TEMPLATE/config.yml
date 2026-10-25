@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/EranTzabar/PAB-Eval_Benchmark/discussions
+    about: Ask how something works or share an idea. Bugs go to the bug form.
+  - name: Report a vulnerability
+    url: https://github.com/EranTzabar/PAB-Eval_Benchmark/security/advisories/new
+    about: Private security report. Do not file a public issue.

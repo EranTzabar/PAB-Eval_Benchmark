@@ -1,0 +1,62 @@
+name: Bug report
+description: Something is broken or behaves wrongly
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems belong in the private advisory form, not here.
+        See https://github.com/EranTzabar/PAB-Eval_Benchmark/blob/main/SECURITY.md
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps someone else can follow.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where?
+      multiple: false
+      options:
+        - Generate / runs
+        - Judges / scoring
+        - Dataset
+        - Configurations
+        - Personas
+        - Web UI
+        - API / backend
+        - Benchmark spec / docs
+        - Development setup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant output. Remove API keys, R2 credentials, and other secrets.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python / Node versions, how you started the app (for example `.\start-dev.ps1` or `python main.py` + `npm run dev`).
+      placeholder: |
+        OS:
+        Python:
+        Node:
+        How started:

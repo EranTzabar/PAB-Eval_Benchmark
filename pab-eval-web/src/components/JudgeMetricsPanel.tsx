@@ -27,6 +27,7 @@ import type { JudgeRunExportEntry } from "@/lib/judgeRunsExport";
 import { SCORE_DEFINITIONS } from "@/lib/scoreDefinitions";
 import type { JudgeRunMetrics, RunJudgeMetrics, ScoreBucket } from "@/types/api";
 
+import { JudgeMetricsRadar, type JudgeMetricsRadarSeries } from "./JudgeMetricsRadar";
 import { ScoreColumnHeader } from "./ScoreColumnHeader";
 
 type ViewMode = "within" | "cross-id" | "cross-run";
@@ -53,16 +54,40 @@ function bucketForRow(judgeRun: JudgeRunMetrics, rowKey: string): ScoreBucket {
 }
 
 function judgeColumnLabel(judgeRun: JudgeRunMetrics): string {
-  const parts = [judgeRun.judge_id, judgeRun.judge_model];
+  const parts = [judgeRun.judge_model];
   if (judgeRun.prompt_version) {
     parts.push(`v${judgeRun.prompt_version}`);
   }
-  return parts.join(" · ");
+  return parts.filter(Boolean).join(" · ");
 }
 
-function judgeColumnSubLabel(judgeRun: JudgeRunMetrics): string {
-  return judgeRun.judge_run_id;
+function withinColumnLabel(run: RunJudgeMetrics, judgeRun: JudgeRunMetrics): string {
+  if (run.judge_runs.length > 1) {
+    return `${run.run_id} · ${judgeColumnLabel(judgeRun)}`;
+  }
+  return run.run_id;
 }
+
+function targetModelSubLabel(targetModel: string): string | undefined {
+  if (!targetModel || targetModel === "—") return undefined;
+  return targetModel;
+}
+
+function radarValuesForEntry(entry: JudgeRunExportEntry | undefined): number[] {
+  return CATEGORY_ORDER.map((category) => {
+    if (!entry) return 0;
+    const score = categoryCompositeScore(entry.scores, category);
+    return score == null ? 0 : score * 100;
+  });
+}
+
+const EMPTY_BUCKET: ScoreBucket = {
+  count: 0,
+  ok_count: 0,
+  mean_ltf: null,
+  mean_ebc: null,
+  aid_rate: null,
+};
 
 interface MetricsTableProps {
   rowKeys: string[];
@@ -283,18 +308,6 @@ export function JudgeMetricsPanel() {
     [],
   );
 
-  const toggleRun = (runId: string) => {
-    setSelectedRunIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
-      }
-      return next;
-    });
-  };
-
   const togglePair = (key: string) => {
     setSelectedPairKeys((prev) => {
       const next = new Set(prev);
@@ -321,11 +334,50 @@ export function JudgeMetricsPanel() {
       .filter((p) => selectedPairKeys.has(pairKey(p.runId, p.judgeRun.judge_run_id)))
       .map((p) => ({
         id: pairKey(p.runId, p.judgeRun.judge_run_id),
-        label: `${p.runId} · ${p.judgeRun.judge_id}`,
-        subLabel: `${p.targetModel} / ${p.judgeRun.judge_run_id}`,
+        label: `${p.runId} · ${p.judgeRun.judge_model}`,
+        subLabel: targetModelSubLabel(p.targetModel),
         judgeRun: p.judgeRun,
       }));
   }, [pairs, selectedPairKeys]);
+
+  const radarSeries = useMemo((): JudgeMetricsRadarSeries[] => {
+    if (view === "within") {
+      return metrics
+        .filter((run) => selectedRunIds.has(run.run_id))
+        .flatMap((run) =>
+          run.judge_runs.map((jr) => ({
+            id: pairKey(run.run_id, jr.judge_run_id),
+            label: withinColumnLabel(run, jr),
+            values: radarValuesForEntry(findExportEntry(entries, run.run_id, jr.judge_run_id)),
+          })),
+        );
+    }
+    if (view === "cross-id") {
+      return crossIdRuns.map(({ run, judgeRun }) => ({
+        id: run.run_id,
+        label: run.run_id,
+        values: radarValuesForEntry(findExportEntry(entries, run.run_id, judgeRun.judge_run_id)),
+      }));
+    }
+    return crossRunColumns.map((col) => {
+      const { runId, judgeRunId } = parsePairKey(col.id);
+      return {
+        id: col.id,
+        label: col.label,
+        values: radarValuesForEntry(findExportEntry(entries, runId, judgeRunId)),
+      };
+    });
+  }, [view, metrics, selectedRunIds, entries, crossIdRuns, crossRunColumns]);
+
+  const allModelSeries = useMemo((): JudgeMetricsRadarSeries[] => {
+    return metrics.flatMap((run) =>
+      run.judge_runs.map((jr) => ({
+        id: pairKey(run.run_id, jr.judge_run_id),
+        label: withinColumnLabel(run, jr),
+        values: radarValuesForEntry(findExportEntry(entries, run.run_id, jr.judge_run_id)),
+      })),
+    );
+  }, [metrics, entries]);
 
   return (
     <div className="space-y-4">
@@ -400,59 +452,58 @@ export function JudgeMetricsPanel() {
 
           {view === "within" ? (
             <div className="space-y-4">
-              <fieldset className="space-y-2">
-                <legend className="text-sm font-medium">Generate runs</legend>
-                <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-medium">Adapter</span>
+                <select
+                  className="max-w-md rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-600 dark:bg-zinc-950"
+                  value={
+                    selectedRunIds.size === metrics.length && metrics.length > 0
+                      ? ""
+                      : selectedRunIds.size === 1
+                        ? [...selectedRunIds][0]
+                        : ""
+                  }
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (!value) {
+                      setSelectedRunIds(new Set(metrics.map((r) => r.run_id)));
+                      return;
+                    }
+                    setSelectedRunIds(new Set([value]));
+                  }}
+                >
+                  <option value="">All adapters</option>
                   {metrics.map((run) => (
-                    <label key={run.run_id} className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={selectedRunIds.has(run.run_id)}
-                        onChange={() => toggleRun(run.run_id)}
-                      />
-                      <span>
-                        {run.run_id}
-                        <span className="ml-1 text-zinc-500">({run.target_model})</span>
-                      </span>
-                    </label>
+                    <option key={run.run_id} value={run.run_id}>
+                      {run.run_id}
+                    </option>
                   ))}
-                </div>
-              </fieldset>
+                </select>
+              </label>
 
               {withinRuns.length === 0 ? (
                 <p className="text-sm text-zinc-500">Select at least one generate run.</p>
               ) : (
-                withinRuns.map((run) => (
-                  <div key={run.run_id} className="space-y-2">
-                    <h3 className="text-sm font-semibold">
-                      {run.run_id}
-                      <span className="ml-2 font-normal text-zinc-500">{run.target_model}</span>
-                    </h3>
-                    <MetricsTable
-                      rowKeys={rowKeys}
-                      rowLabel={rowLabel}
-                      columns={run.judge_runs.map((jr) => ({
-                        id: jr.judge_run_id,
-                        label: judgeColumnLabel(jr),
-                        subLabel: judgeColumnSubLabel(jr),
+                <>
+                  <JudgeMetricsRadar series={radarSeries} modelSeries={allModelSeries} />
+                  <MetricsTable
+                    rowKeys={rowKeys}
+                    rowLabel={rowLabel}
+                    columns={withinRuns.flatMap((run) =>
+                      run.judge_runs.map((jr) => ({
+                        id: pairKey(run.run_id, jr.judge_run_id),
+                        label: withinColumnLabel(run, jr),
                         judgeRun: jr,
-                      }))}
-                      getBucket={(columnId, rowKey) => {
-                        const jr = run.judge_runs.find((j) => j.judge_run_id === columnId);
-                        if (!jr) {
-                          return {
-                            count: 0,
-                            ok_count: 0,
-                            mean_ltf: null,
-                            mean_ebc: null,
-                            aid_rate: null,
-                          };
-                        }
-                        return bucketForRow(jr, rowKey);
-                      }}
-                    />
-                  </div>
-                ))
+                      })),
+                    )}
+                    getBucket={(columnId, rowKey) => {
+                      const { runId, judgeRunId } = parsePairKey(columnId);
+                      const run = withinRuns.find((r) => r.run_id === runId);
+                      const jr = run?.judge_runs.find((j) => j.judge_run_id === judgeRunId);
+                      return jr ? bucketForRow(jr, rowKey) : EMPTY_BUCKET;
+                    }}
+                  />
+                </>
               )}
             </div>
           ) : null}
@@ -480,13 +531,14 @@ export function JudgeMetricsPanel() {
                   AID = 1 gives t(i) = 0; unparsed items count as 0. Shown as a percentage.
                 </p>
               </div>
+              <JudgeMetricsRadar series={radarSeries} modelSeries={allModelSeries} />
               <CompositeTable
                 rowKeys={rowKeys}
                 rowLabel={rowLabel}
                 columns={crossIdRuns.map(({ run, judgeRun }) => ({
                   id: run.run_id,
                   label: run.run_id,
-                  subLabel: `${run.target_model} · ${judgeRun.judge_run_id}`,
+                  subLabel: targetModelSubLabel(run.target_model),
                   judgeRun,
                 }))}
                 getComposite={(columnId, rowKey) => {
@@ -527,6 +579,7 @@ export function JudgeMetricsPanel() {
                   })}
                 </div>
               </fieldset>
+              <JudgeMetricsRadar series={radarSeries} modelSeries={allModelSeries} />
               <MetricsTable
                 rowKeys={rowKeys}
                 rowLabel={rowLabel}
